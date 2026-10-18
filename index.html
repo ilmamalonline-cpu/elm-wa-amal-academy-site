@@ -1,1 +1,226 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="أكاديمية علم وعمل لتحفيظ القرآن الكريم وتعليم التجويد والعلوم الشرعية.">
+<title>أكاديمية علم وعمل</title>
+<style>
+:root {
+  --green: #123d32;
+  --green2: #1c5948;
+  --gold: #c7a45b;
+  --cream: #f7f3e9;
+  --text: #26382f;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: Tahoma, Arial, sans-serif;
+  background: var(--cream);
+  color: var(--text);
+  line-height: 1.9;
+}
+.container { width: 90%; max-width: 1100px; margin: auto; }
+header {
+  background: var(--green);
+  color: white;
+  border-bottom: 3px solid var(--gold);
+  padding: 15px 0;
+}
+nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+.logo { font-size: 23px; font-weight: bold; }
+.logo span { display: block; color: #e5cf98; font-size: 12px; }
+nav a { color: white; text-decoration: none; margin: 0 7px; }
+nav a:hover { color: #e5cf98; }
+.hero {
+  background: radial-gradient(ellipse at top left, #286653, transparent 55%), var(--green);
+  color: white;
+  padding: 75px 0;
+}
+.hero-content { max-width: 760px; }
+.label { color: #e5cf98; font-weight: bold; }
+h1 { font-size: clamp(32px, 5vw, 55px); line-height: 1.4; margin: 12px 0; }
+.hero p { color: #e5e9e3; font-size: 18px; }
+.btn {
+  display: inline-block;
+  padding: 10px 22px;
+  margin: 10px 5px 0 0;
+  border-radius: 7px;
+  background: var(--gold);
+  color: #172b23;
+  font-weight: bold;
+  text-decoration: none;
+}
+.btn-outline { background: transparent; border: 1px solid var(--gold); color: white; }
+section { padding: 60px 0; }
+.section-title { text-align: center; margin-bottom: 32px; }
+.section-title h2 { color: var(--green); font-size: 30px; margin-bottom: 5px; }
+.section-title p { color: #68766f; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.card {
+  background: white;
+  padding: 23px;
+  border-radius: 12px;
+  border: 1px solid #e7dfce;
+  box-shadow: 0 6px 20px #123d3209;
+}
+.card .number { color: var(--gold); font-size: 24px; font-weight: bold; }
+.card h3 { color: var(--green); margin: 5px 0; }
+.card p { color: #68766f; margin-bottom: 0; }
+.alt { background: #eee8d9; }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+.step { padding: 18px; border-right: 3px solid var(--gold); background: #ffffffaa; }
+.faq { max-width: 800px; margin: auto; }
+details { background: white; padding: 15px 20px; margin: 10px 0; border-radius: 9px; }
+summary { cursor: pointer; color: var(--green); font-weight: bold; }
+.contact { background: var(--green); color: white; text-align: center; }
+.contact h2 { color: white; }
+.contact p { color: #e5e9e3; }
+footer { background: #0b2b23; color: #d5dfd8; text-align: center; padding: 20px; }
+@media(max-width: 750px) {
+  .cards { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  .hero { padding: 50px 0; }
+  nav { justify-content: center; }
+  nav .logo { width: 100%; text-align: center; }
+}
+@media(max-width: 420px) {
+  .steps { grid-template-columns: 1fr; }
+  nav a { margin: 0 4px; font-size: 13px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <nav>
+      <div class="logo">علم وعمل
+        <span>أكاديمية القرآن الكريم والعلوم الشرعية</span>
+      </div>
+      <div>
+        <a href="#programs">برامجنا</a>
+        <a href="#method">منهجيتنا</a>
+        <a href="#faq">الأسئلة الشائعة</a>
+        <a href="#contact">تواصل معنا</a>
+      </div>
+    </nav>
+  </div>
+</header>
 
+<main>
+<section class="hero" id="home">
+  <div class="container hero-content">
+    <div class="label">رحلة تعلّم تُبنى بالعلم وتثمر بالعمل</div>
+    <h1>مع القرآن الكريم،<br>خطوة ثابتة نحو الإتقان</h1>
+    <p>أكاديمية علم وعمل للتعلّم عن بُعد، تجمع بين حفظ القرآن الكريم وتجويده ومراجعته، وتعلّم العلوم الشرعية في بيئة تعليمية منظمة تراعي احتياجات الطالب.</p>
+    <a class="btn" href="#programs">تعرّف على برامجنا</a>
+    <a class="btn btn-outline" href="#contact">استفسر عن الدراسة</a>
+  </div>
+</section>
+
+<section id="programs">
+  <div class="container">
+    <div class="section-title">
+      <h2>برامجنا التعليمية</h2>
+      <p>مسارات تساعد الطالب على بناء أساس صحيح والتقدّم بخطوات واضحة.</p>
+    </div>
+    <div class="cards">
+      <article class="card">
+        <div class="number">01</div>
+        <h3>تحفيظ القرآن الكريم</h3>
+        <p>خطة حفظ تراعي مستوى الطالب، مع متابعة التقدّم وتثبيت المحفوظ بالمراجعة.</p>
+      </article>
+      <article class="card">
+        <div class="number">02</div>
+        <h3>التجويد وتصحيح التلاوة</h3>
+        <p>التدرّب على مخارج الحروف والصفات وأحكام التجويد لتحسين القراءة.</p>
+      </article>
+      <article class="card">
+        <div class="number">03</div>
+        <h3>المراجعة والتثبيت</h3>
+        <p>تنظيم مراجعة المحفوظ بخطة تساعد على الاستمرار وتقليل النسيان.</p>
+      </article>
+      <article class="card">
+        <div class="number">04</div>
+        <h3>العلوم الشرعية</h3>
+        <p>مسار للتعلّم المنهجي في العلوم الشرعية وفق البرامج المتاحة بالأكاديمية.</p>
+      </article>
+      <article class="card">
+        <div class="number">05</div>
+        <h3>برامج الأطفال</h3>
+        <p>تعلّم يناسب المرحلة العمرية ويشجّع على بناء عادة يومية نافعة.</p>
+      </article>
+      <article class="card">
+        <div class="number">06</div>
+        <h3>متابعة تقدّم الطالب</h3>
+        <p>تحديد أهداف مناسبة ومتابعة التقدّم بالتنسيق مع المعلّم.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="method">
+  <div class="container">
+    <div class="section-title">
+      <h2>كيف تبدأ رحلتك؟</h2>
+      <p>خطوات بسيطة لتنظيم التعلّم من البداية.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><strong>١. استفسار مبدئي</strong><br>أخبرنا بالعمر والهدف والمستوى الحالي.</div>
+      <div class="step"><strong>٢. تحديد المسار</strong><br>التعرّف على البرنامج المناسب لاحتياجات الطالب.</div>
+      <div class="step"><strong>٣. تنظيم التعلّم</strong><br>الاستفسار عن المواعيد وخطة الدراسة المتاحة.</div>
+      <div class="step"><strong>٤. متابعة التقدّم</strong><br>مراجعة الأهداف وتحديث الخطة حسب التقدّم.</div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="container">
+    <div class="section-title">
+      <h2>الأسئلة الشائعة</h2>
+      <p>إجابات أولية عن الدراسة في الأكاديمية.</p>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>هل يمكن التعلّم عن بُعد؟</summary>
+        <p>الأكاديمية موجّهة للتعلّم عن بُعد. تواصل معنا لمعرفة تفاصيل البرامج والمواعيد المتاحة.</p>
+      </details>
+      <details>
+        <summary>هل البرامج مناسبة للمبتدئين؟</summary>
+        <p>أرسل لنا مستوى الطالب وهدفه للاستفسار عن المسار الأنسب له.</p>
+      </details>
+      <details>
+        <summary>كيف أعرف الرسوم والمواعيد؟</summary>
+        <p>يمكنك التواصل مع إدارة الأكاديمية للحصول على التفاصيل الحالية قبل التسجيل.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="contact" id="contact">
+  <div class="container">
+    <div class="section-title">
+      <h2>ابدأ باستفسارك</h2>
+      <p>تواصل مع إدارة أكاديمية علم وعمل للاستفسار عن البرامج والمواعيد.</p>
+      <p>أضف هنا رابط واتساب الأكاديمية أو وسيلة التواصل الرسمية.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  © <span id="year">2026</span> أكاديمية علم وعمل — جميع الحقوق محفوظة
+</footer>
+<script>
+document.getElementById("year").textContent = new Date().getFullYear();
+</script>
+</body>
+  </html>
