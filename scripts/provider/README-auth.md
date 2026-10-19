@@ -1,0 +1,11 @@
+# Native local Auth runner
+
+The final runtime contract is documented in [README-native.md](README-native.md). `auth-start.sh` is fixed to127.0.0.1:55441, database `phase2_provider_test` as dedicated non-superuser `supabase_auth_admin`, issuer `http://127.0.0.1:55441`, site/recovery redirect `http://127.0.0.1:3403`. Environment overrides cannot redirect it to a hosted database or issuer.
+
+Public signup and phone/external providers are disabled. Password email is enabled only for reserved `.invalid` synthetic fixture identities, using the local SMTP capture at127.0.0.1:55445; email auto-confirm is disabled, and trusted test provisioning explicitly confirms synthetic accounts. TOTP enrollment/verification is enabled. Actual password, refresh/logout, TOTP, factor unenrollment and captured-email recovery were tested; this is not approval for real-user recovery operations.
+
+The pinned official Auth source is [v2.197.0](https://github.com/supabase/auth/releases/tag/v2.197.0), commit `4eee58f296d9698a1c2c0ae14d7a0b379c7622d3`. Source archive SHA256 `04ec4c36926121abdccce20061633d0a5c41afae5487d75e7367fb2627eec885`; native binary SHA256 `b5f84e8e119b55731e3bc4924dcbbfe860c93c653038e5af20fe9a5a963d4afb`. Binary `/workspace/phase2-provider-runtime/bin/gotrue`, external Go1.27.1 toolchain `/workspace/phase2-provider-runtime/toolchain/go/bin/go`.
+
+Run `scripts/provider/auth-start.sh` to serve, or use `PHASE2_PROVIDER_MIGRATE=synthetic-only scripts/provider/auth-start.sh migrate` for the separate official Auth migration command against the already-created disposable local database. Both require restricted ephemeral runtime keys. The dedicated login must own the native Auth schema/tables and use `search_path=auth,public`; it does not own application tables or receive superuser/BYPASSRLS. Initial migration preparation temporarily used the local `ubuntu` operator before transferring native Auth objects to the dedicated login. A no-login `postgres` compatibility role exists because the official migration grant block references it. These are local database roles, not hosted or real academy accounts.
+
+The actual service used the dedicated login during acceptance tests. It is stopped at handoff. No real mailbox, OAuth account, hosted project or real child identity was provisioned.

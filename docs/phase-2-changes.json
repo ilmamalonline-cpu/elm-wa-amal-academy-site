@@ -1,0 +1,39 @@
+{
+  "changed_existing_source_or_tests": [
+    "src/proxy.ts"
+  ],
+  "added_source_or_tests": [
+    "src/app/api/phase2/[...segments]/route.ts",
+    "src/lib/phase2/security.ts",
+    "tests/phase2-api.test.ts",
+    "tests/phase2-db.mjs",
+    "tests/phase2-fixtures.mjs"
+  ],
+  "other_changed_existing_files": [
+    "README.md",
+    "package.json",
+    "package-lock.json",
+    "playwright.config.ts"
+  ],
+  "other_added_files": [
+    ".env.example",
+    "db/phase2.sql",
+    "scripts/phase2-reset.mjs",
+    "docs/phase-2-scope.md",
+    "docs/phase-2-report.md",
+    "docs/phase-2-changes.json",
+    "docs/checks/phase2/*"
+  ],
+  "runtime_outside_project": [
+    "/workspace/phase2-tools/",
+    "/workspace/phase2-runtime/"
+  ],
+  "unchanged": [
+    "index.html",
+    "Phase 0 archive and plan",
+    "docs/phase-1-report.md",
+    "docs/owner-approval.md",
+    "public page content/components/styles",
+    "original browser test source and Phase 1 previews"
+  ]
+}

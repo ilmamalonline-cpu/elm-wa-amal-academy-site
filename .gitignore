@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+.env*
+!.env.example
+*.tsbuildinfo
+next-env.d.ts
+test-results/
+playwright-report/
+*.log
+
+# Local historical execution evidence; preserved on disk, not push payload.
+/docs/checks/
+/docs/test-results.json
