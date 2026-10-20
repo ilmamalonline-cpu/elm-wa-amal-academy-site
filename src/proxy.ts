@@ -13,14 +13,14 @@ export function proxy(request: NextRequest) {
   const parts = path.split("/").filter(Boolean);
   requestHeaders.set("x-site-locale", parts[0] === "en" ? "en" : "ar");
 
-  if (path.startsWith("/api/phase2/") || path.startsWith("/api/manual-payments/") || path === "/api/academy-demo" || path.startsWith("/fonts/")) {
+  if (path.startsWith("/api/phase2/") || path.startsWith("/api/manual-payments/") || path === "/api/academy-demo" || path === "/api/family" || path.startsWith("/fonts/")) {
     // Identity verification and PostgreSQL RLS live in the server handler.
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   const knownRoute = path === "/" || (
     (locales as readonly string[]).includes(parts[0]) &&
-    (parts.length === 1 || (parts.length === 2 && (parts[1] === "workspace" || (pageKeys as readonly string[]).includes(parts[1]))))
+    (parts.length === 1 || (parts.length === 2 && (["workspace", "family"].includes(parts[1]) || (pageKeys as readonly string[]).includes(parts[1]))))
   );
   if (!knownRoute) {
     // Explicit status avoids a soft-404 when a loading boundary streams early.

@@ -157,9 +157,17 @@ const SHAPES: Record<string, string[]> = {
 function strict(command: AcademyAction) {
   if (!command || typeof command !== "object" || Array.isArray(command))
     fail("invalid_action_shape");
-  const expected = SHAPES[command.action];
+  // SHAPES is a plain object: accept only own properties looked up by a string name, so
+  // inherited keys ("constructor", "__proto__", ...) and values that merely stringify to an
+  // action name (e.g. ["enroll"]) can neither throw a TypeError nor reach perform().
+  const name: unknown = command.action;
   if (
-    !expected ||
+    typeof name !== "string" ||
+    !Object.prototype.hasOwnProperty.call(SHAPES, name)
+  )
+    fail("invalid_action_shape");
+  const expected = SHAPES[name as string];
+  if (
     Object.keys(command).sort().join(",") !==
       ["action", ...expected].sort().join(",")
   )

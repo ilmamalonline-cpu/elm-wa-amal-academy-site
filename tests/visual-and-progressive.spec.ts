@@ -6,7 +6,7 @@ for (const locale of locales) {
   test(`${locale}: server-rendered pages and locale link work without JavaScript`, async ({ browser }) => {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
-    await page.goto(`http://127.0.0.1:3000/${locale}/packages`);
+    await page.goto(`/${locale}/packages`);
     await expect(page.locator('[data-package]')).toHaveCount(3);
     await page.getByRole('link', { name: site[locale].language, exact: true }).click();
     const other = locale === 'ar' ? 'en' : 'ar';

@@ -27,14 +27,19 @@ async function directory() {
   await mkdir(base, { recursive: true, mode: 0o700 });
   await chmod(base, 0o700);
 }
-async function load(key: string): Promise<AcademyWorld> {
+async function load(
+  key: string,
+): Promise<{ world: AcademyWorld; created: boolean }> {
   try {
-    return JSON.parse(
-      await readFile(join(base, `${safe(key)}.json`), "utf8"),
-    ) as AcademyWorld;
+    return {
+      world: JSON.parse(
+        await readFile(join(base, `${safe(key)}.json`), "utf8"),
+      ) as AcademyWorld,
+      created: false,
+    };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return createSeedWorld();
+    return { world: createSeedWorld(), created: true };
   }
 }
 async function save(key: string, world: AcademyWorld) {
@@ -73,11 +78,14 @@ async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 export async function transaction<T>(
   key: string,
   fn: (world: AcademyWorld) => Promise<T> | T,
+  persist: "always" | "if-new" = "always",
 ): Promise<T> {
   return withLock(key, async () => {
-    const world = await load(key);
+    const { world, created } = await load(key);
     const result = await fn(world);
-    await save(key, world);
+    // "if-new" is for read-only projections: the first read still pins the seed world
+    // (its slot times) on disk, but later reads must not rewrite an unchanged file.
+    if (persist === "always" || created) await save(key, world);
     return result;
   });
 }
@@ -86,7 +94,7 @@ export async function readView(
   actor: AcademyActor | null,
 ): Promise<AcademyView> {
   if (!actor) return view(createSeedWorld(), null);
-  return transaction(key, (world) => view(world, actor));
+  return transaction(key, (world) => view(world, actor), "if-new");
 }
 export async function mutate(
   key: string,
@@ -99,8 +107,11 @@ export async function mutate(
   });
 }
 export async function resetWorld(key: string) {
-  return transaction(key, (world) => {
-    Object.assign(world, createSeedWorld());
+  // Recovery path: never read the previous file, which may be unreadable or malformed
+  // (the browser adapter's reset behaves the same way).
+  return withLock(key, async () => {
+    const world = createSeedWorld();
+    await save(key, world);
     return view(world, null);
   });
 }
