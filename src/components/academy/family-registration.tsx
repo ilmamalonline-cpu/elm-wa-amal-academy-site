@@ -15,6 +15,7 @@ const errorCopy: Record<string, [string, string]> = {
   configuration_required: ["التسجيل غير مهيأ في هذه المراجعة المحلية.", "Registration is not configured for this local review."],
   email_confirmation_configuration_required: ["تأكيد البريد الإلكتروني غير مهيأ لهذه المراجعة المحلية.", "Email confirmation is not configured for this local review."],
   registration_disabled: ["التسجيل معطل حاليًا.", "Registration is currently disabled."],
+  signup_disabled: ["إنشاء الحساب قيد الإعداد في Preview؛ استخدم تسجيل الدخول بعد التحقق.", "Preview signup is being prepared; use sign in after verification."],
   local_review_only: ["هذه الواجهة متاحة للمراجعة المحلية فقط.", "This interface is available for local review only."],
   csrf_required: ["تعذر التحقق من مصدر الطلب. أعد تحميل الصفحة.", "The request origin could not be verified. Reload the page."],
   same_origin_required: ["يجب أن يأتي الطلب من هذه الصفحة.", "The request must come from this page."],
@@ -34,7 +35,7 @@ const errorCopy: Record<string, [string, string]> = {
   not_found: ["لم يتم العثور على السجل. حدّث الصفحة.", "The record was not found. Refresh the page."],
 };
 
-export function FamilyRegistration({ locale }: { locale: Locale }) {
+export function FamilyRegistration({ locale, preview = false, previewSignupEnabled = true }: { locale: Locale; preview?: boolean; previewSignupEnabled?: boolean }) {
   const en = locale === "en";
   const t = (ar: string, english: string) => (en ? english : ar);
   const [family, setFamily] = useState<FamilyState | null>(null);
@@ -164,7 +165,7 @@ export function FamilyRegistration({ locale }: { locale: Locale }) {
       <div className="family-shell">
         <header className="family-header">
           <div><p className="family-kicker">{t("مساحة الأسرة", "FAMILY SPACE")}</p><h1>{t("تسجيل الأسرة وإدارة الأطفال", "Family registration & children")}</h1><p className="family-muted">{intro}</p></div>
-          <span className="family-review-badge">{t("مراجعة محلية فقط", "LOCAL REVIEW ONLY")}</span>
+          <span className="family-review-badge">{preview ? t("مراجعة المالك في Preview فقط", "OWNER PREVIEW ONLY") : t("مراجعة محلية فقط", "LOCAL REVIEW ONLY")}</span>
         </header>
         {(error || notice) && <div className={error ? "family-alert family-alert-error" : "family-alert family-alert-success"} role="status" aria-live="polite">{error || notice}</div>}
 
@@ -173,9 +174,10 @@ export function FamilyRegistration({ locale }: { locale: Locale }) {
             <div className="family-panel family-auth-panel">
               <div className="family-tabs" role="tablist" aria-label={t("نوع الوصول", "Access type")}>
                 <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "is-active" : ""} onClick={() => { setMode("login"); setError(""); }}>{t("تسجيل الدخول", "Sign in")}</button>
-                <button type="button" role="tab" aria-selected={mode === "signup"} className={mode === "signup" ? "is-active" : ""} onClick={() => { setMode("signup"); setError(""); }}>{t("إنشاء حساب ولي الأمر", "Create guardian account")}</button>
+                <button type="button" role="tab" aria-selected={mode === "signup"} disabled={preview && !previewSignupEnabled} className={mode === "signup" ? "is-active" : ""} onClick={() => { setMode("signup"); setError(""); }}>{t("إنشاء حساب ولي الأمر", "Create guardian account")}</button>
               </div>
               <form onSubmit={submitAuth} className="family-form">
+                {preview && !previewSignupEnabled && <p className="family-muted" role="note">{t("إنشاء الحساب قيد الإعداد في Preview؛ استخدم تسجيل الدخول بعد التحقق.", "Preview signup is being prepared; use sign in after verification.")}</p>}
                 {mode === "signup" && <label>{t("اسم ولي الأمر", "Guardian name")}<input name="display_name" autoComplete="name" required minLength={2} maxLength={100} value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>}
                 <label>{t("البريد الإلكتروني", "Email")}<input name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
                 <label>{t("كلمة المرور", "Password")}<input name="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} required minLength={12} maxLength={128} value={password} onChange={(e) => setPassword(e.target.value)} /><small>{t("12 حرفًا على الأقل، وبحد أقصى 128 حرفًا.", "At least 12 characters, maximum 128.")}</small></label>
@@ -184,7 +186,7 @@ export function FamilyRegistration({ locale }: { locale: Locale }) {
               </form>
               <p className="family-footnote">{t("الأطفال لا يسجلون الدخول؛ تظل ملفاتهم تحت إدارة ولي الأمر.", "Children do not sign in; their profiles remain guardian-managed.")}</p>
             </div>
-            <aside className="family-panel family-note"><h2>{t("مساحة منفصلة وآمنة", "A separate, focused workspace")}</h2><p>{t("هذه المساحة مخصصة لملفات الأسرة فقط. المنهج يديره المعلم ولا يتم استيراده هنا.", "This workspace is for family profiles only. Teachers manage curriculum; nothing is imported here.")}</p><p>{t("الدفع الحقيقي وZoom معطلان في هذه المراجعة المحلية.", "Real payments and Zoom are disabled in this local review.")}</p></aside>
+            <aside className="family-panel family-note"><h2>{t("مساحة منفصلة وآمنة", "A separate, focused workspace")}</h2><p>{t("هذه المساحة مخصصة لملفات الأسرة فقط. المنهج يديره المعلم ولا يتم استيراده هنا.", "This workspace is for family profiles only. Teachers manage curriculum; nothing is imported here.")}</p><p>{t(preview ? "هذه مساحة Preview خاصة بالمالك فقط؛ لا تُعرض هوية البريد المسموح." : "الدفع الحقيقي وZoom معطلان في هذه المراجعة المحلية.", preview ? "This is a private owner-only Preview; the allowed email identity is not exposed." : "Real payments and Zoom are disabled in this local review.")}</p></aside>
           </section>
         ) : family?.authenticated && !family.guardian ? (
           <section className="family-panel family-profile-completion">

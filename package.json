@@ -28,7 +28,7 @@
     "start:academy": "ACADEMY_DEMO=synthetic-only next start --hostname 127.0.0.1",
     "test:academy": "tsx --test --test-concurrency=1 tests/academy-model.test.ts tests/academy-browser-preview.test.ts tests/academy-hardening.test.ts",
     "test:preview": "playwright test --config=playwright.preview.config.ts",
-    "test:family": "tsx --test --test-concurrency=1 tests/family-registration.test.ts tests/family-registration-route.test.ts && node --test --test-concurrency=1 tests/family-registration-db.test.mjs",
+    "test:family": "tsx --test --test-concurrency=1 tests/family-registration.test.ts tests/family-registration-route.test.ts tests/family-callback.test.ts && node --test --test-concurrency=1 tests/family-registration-db.test.mjs",
     "test:family:browser": "playwright test --config=playwright.family.config.ts",
     "check:family:connection": "tsx scripts/family-review.ts --check",
     "dev:family": "tsx scripts/family-review.ts --serve"

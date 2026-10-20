@@ -13,7 +13,7 @@ export function proxy(request: NextRequest) {
   const parts = path.split("/").filter(Boolean);
   requestHeaders.set("x-site-locale", parts[0] === "en" ? "en" : "ar");
 
-  if (path.startsWith("/api/phase2/") || path.startsWith("/api/manual-payments/") || path === "/api/academy-demo" || path === "/api/family" || path.startsWith("/fonts/")) {
+  if (path.startsWith("/api/phase2/") || path.startsWith("/api/manual-payments/") || path === "/api/academy-demo" || path === "/api/family" || path === "/auth/family/callback" || path.startsWith("/fonts/")) {
     // Identity verification and PostgreSQL RLS live in the server handler.
     return NextResponse.next({ request: { headers: requestHeaders } });
   }

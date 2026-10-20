@@ -13,7 +13,7 @@ function req(action?: Record<string, unknown>, cookie?: string) {
   });
 }
 async function isolated(run: () => Promise<void>) {
-  const names = ["ACADEMY_FAMILY_REGISTRATION", "ACADEMY_SUPABASE_URL", "ACADEMY_SUPABASE_PUBLISHABLE_KEY", "VERCEL", "VERCEL_ENV", "NETLIFY", "CF_PAGES"];
+  const names = ["ACADEMY_FAMILY_REGISTRATION", "ACADEMY_SUPABASE_URL", "ACADEMY_SUPABASE_PUBLISHABLE_KEY", "ACADEMY_FAMILY_ALLOWED_EMAIL", "ACADEMY_FAMILY_CALLBACK_URL", "ACADEMY_FAMILY_SIGNUP", "VERCEL", "VERCEL_ENV", "VERCEL_GIT_COMMIT_REF", "NETLIFY", "CF_PAGES"];
   const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
   const original = globalThis.fetch;
   try {
@@ -84,4 +84,71 @@ test("HTTP mutating actions reject missing origin/header and oversized JSON with
   const oversized = req({ action: "signup", unknown: "x".repeat(8193) });
   assert.equal((await POST(oversized)).status, 413);
   assert.equal(calls, 0);
+}));
+
+const previewHost = "elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app";
+function previewReq(action?: Record<string, unknown>, origin = `https://${previewHost}`) {
+  return new Request(`https://${previewHost}/api/family`, { method: action ? "POST" : "GET", headers: { host: previewHost, origin, "x-forwarded-host": previewHost, "x-forwarded-proto": "https", "content-type": "application/json", "x-family-registration": "local-review" }, ...(action ? { body: JSON.stringify(action) } : {}) });
+}
+function enablePreview() {
+  process.env.ACADEMY_FAMILY_REGISTRATION = "owner-preview";
+  process.env.VERCEL = "1"; process.env.VERCEL_ENV = "preview"; process.env.VERCEL_GIT_COMMIT_REF = "preview/academy-synthetic";
+  process.env.ACADEMY_FAMILY_ALLOWED_EMAIL = "owner@example.test"; process.env.ACADEMY_FAMILY_SIGNUP = "owner-test-approved";
+  process.env.ACADEMY_FAMILY_CALLBACK_URL = `https://${previewHost}/auth/family/callback?_vercel_share=synthetic-share`;
+  process.env.ACADEMY_SUPABASE_URL = FAMILY_PROJECT;
+  process.env.ACADEMY_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_synthetic_offline_example";
+}
+
+test("preview rejects disallowed auth before provider calls and rejects origin/host", async () => isolated(async () => {
+  enablePreview();
+  let calls = 0; globalThis.fetch = async () => { calls++; throw new Error("unexpected network"); };
+  assert.equal((await POST(previewReq({ action: "login", email: "other@example.test", password: "synthetic-password-123" }))).status, 403);
+  assert.equal((await POST(previewReq({ action: "login", email: "owner@example.test", password: "synthetic-password-123" }, "https://evil.example"))).status, 403);
+  const wrongHost = new Request(`https://evil.example/api/family`, { method: "POST", headers: { host: "evil.example", origin: "https://evil.example", "x-family-registration": "local-review", "content-type": "application/json" }, body: JSON.stringify({ action: "login", email: "owner@example.test", password: "synthetic-password-123" }) });
+  assert.equal((await POST(wrongHost)).status, 403); assert.equal(calls, 0);
+}));
+
+test("preview signup uses immutable configured redirect and Secure cookie without refresh token", async () => isolated(async () => {
+  enablePreview(); const calls: string[] = [];
+  globalThis.fetch = async (input) => { calls.push(String(input)); const path = new URL(String(input)).pathname; return path.endsWith("/settings") ? Response.json({ mailer_autoconfirm: false, disable_signup: false, external: { email: true } }) : path.endsWith("/signup") ? Response.json({}) : Response.json({ access_token: accessToken, refresh_token: "synthetic_refresh_never_persisted", expires_in: 60 }); };
+  const result = await POST(previewReq({ action: "signup", email: "owner@example.test", password: "synthetic-password-123", display_name: "Owner", locale: "en", consent: true }));
+  assert.equal(result.status, 200); const signupCall = calls.find((call) => call.includes("/auth/v1/signup"))!; assert.match(signupCall, /redirect_to=https%3A%2F%2Felm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app%2Fauth%2Ffamily%2Fcallback%3F_vercel_share%3Dsynthetic-share/);
+  assert.doesNotMatch(signupCall, /evil|client/);
+}));
+
+test("preview signup rejects other emails and a closed gate without provider calls", async () => isolated(async () => {
+  enablePreview(); let calls = 0;
+  globalThis.fetch = async () => { calls++; throw new Error("unexpected network"); };
+  const signup = { action: "signup", email: "other@example.test", password: "synthetic-password-123", display_name: "Test", locale: "en", consent: true };
+  assert.equal((await POST(previewReq(signup))).status, 403);
+  delete process.env.ACADEMY_FAMILY_SIGNUP;
+  const blocked = await POST(previewReq({ ...signup, email: "owner@example.test" }));
+  assert.equal(blocked.status, 503);
+  assert.deepEqual(await blocked.json(), { error: "signup_disabled" });
+  assert.equal(calls, 0);
+}));
+
+test("production stays closed even with every preview opt-in and the correct branch", async () => isolated(async () => {
+  enablePreview(); process.env.VERCEL_ENV = "production"; let calls = 0;
+  globalThis.fetch = async () => { calls++; throw new Error("unexpected network"); };
+  assert.deepEqual(await (await GET(previewReq())).json(), { error: "registration_disabled" });
+  assert.deepEqual(await (await POST(previewReq({ action: "signup", email: "owner@example.test", password: "synthetic-password-123", display_name: "Test", locale: "en", consent: true }))).json(), { error: "registration_disabled" });
+  assert.equal(calls, 0);
+}));
+
+test("preview login validates provider email and stores only a Secure HttpOnly access cookie", async () => isolated(async () => {
+  enablePreview();
+  let email = "owner@example.test";
+  globalThis.fetch = async input => new URL(String(input)).pathname.endsWith("/token")
+    ? Response.json({ access_token: accessToken, refresh_token: "synthetic_refresh_never_persisted", expires_in: 3600 })
+    : Response.json({ id, email, email_confirmed_at: "2026-01-01T00:00:00Z" });
+  const login = { action: "login", email: "owner@example.test", password: "synthetic-password-123" };
+  const success = await POST(previewReq(login));
+  assert.equal(success.status, 200);
+  assert.match(success.headers.get("set-cookie")!, /HttpOnly; SameSite=Strict; Secure;/);
+  assert.doesNotMatch(await success.text(), /access_token|refresh_token|synthetic_access/);
+  email = "other@example.test";
+  const denied = await POST(previewReq(login));
+  assert.equal(denied.status, 403);
+  assert.equal(denied.headers.has("set-cookie"), false);
 }));

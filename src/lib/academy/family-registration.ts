@@ -3,31 +3,67 @@
 export const FAMILY_PROJECT = "https://vbulxdnfknoybdkuhayz.supabase.co";
 export const FAMILY_COOKIE = "academy_family_access";
 export const FAMILY_HEADERS = { "Cache-Control": "private, no-store", Vary: "Cookie" };
+export const PREVIEW_CALLBACK_HOST = "elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app";
+const CALLBACK_PATH = "/auth/family/callback";
 type Env = Record<string, string | undefined>;
 type Json = Record<string, unknown>;
 export class FamilyError extends Error {
   constructor(public code: string, public status = 400) { super(code); }
 }
+function validEmail(value: string | undefined) { return !!value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value === value.toLowerCase(); }
+function previewConfig(env: Env) {
+  if (env.VERCEL !== "1" || env.VERCEL_ENV !== "preview" || env.VERCEL_GIT_COMMIT_REF !== "preview/academy-synthetic" || env.ACADEMY_FAMILY_REGISTRATION !== "owner-preview") return null;
+  const email = env.ACADEMY_FAMILY_ALLOWED_EMAIL?.trim();
+  const callback = env.ACADEMY_FAMILY_CALLBACK_URL;
+  if (!validEmail(email) || !callback) return null;
+  try {
+    const parsed = new URL(callback);
+    const shareValues = parsed.searchParams.getAll("_vercel_share");
+    if (parsed.origin !== `https://${PREVIEW_CALLBACK_HOST}` || parsed.pathname !== CALLBACK_PATH || parsed.username || parsed.password || parsed.hash || [...parsed.searchParams.keys()].length !== 1 || shareValues.length !== 1 || !/^[A-Za-z0-9_-]{8,128}$/.test(shareValues[0])) return null;
+    return { email, callback, share: shareValues[0] };
+  } catch { return null; }
+}
 export function familyEnabled(env: Env = process.env) {
-  return env.ACADEMY_FAMILY_REGISTRATION === "local-review" &&
-    !env.VERCEL && !env.VERCEL_ENV && !env.NETLIFY && !env.CF_PAGES;
+  return (env.ACADEMY_FAMILY_REGISTRATION === "local-review" && !env.VERCEL && !env.VERCEL_ENV && !env.NETLIFY && !env.CF_PAGES) || !!previewConfig(env);
+}
+export function familyMode(env: Env = process.env): "local-review" | "owner-preview" | null {
+  if (env.ACADEMY_FAMILY_REGISTRATION === "local-review" && !env.VERCEL && !env.VERCEL_ENV && !env.NETLIFY && !env.CF_PAGES) return "local-review";
+  return previewConfig(env) ? "owner-preview" : null;
 }
 export function familySecurity(request: Request, env: Env = process.env) {
-  if (!familyEnabled(env)) throw new FamilyError("registration_disabled", 503);
+  const mode = familyMode(env);
+  if (!mode) throw new FamilyError("registration_disabled", 503);
   const host = request.headers.get("host");
-  let local: URL;
-  try { local = new URL(`http://${host}`); } catch { throw new FamilyError("local_review_only", 403); }
-  if (!host || !["localhost", "127.0.0.1", "[::1]"].includes(local.hostname) || local.host !== host || local.pathname !== "/" || local.username || local.password)
-    throw new FamilyError("local_review_only", 403);
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  if ((forwardedHost && forwardedHost !== host) || (forwardedProto && forwardedProto !== "http")) throw new FamilyError("local_review_only", 403);
-  const origin = request.headers.get("origin");
-  const site = request.headers.get("sec-fetch-site");
-  if ((origin && origin !== local.origin) || (site && !["same-origin", "none"].includes(site))) throw new FamilyError("same_origin_required", 403);
-  if (new URL(request.url).search) throw new FamilyError("invalid_request");
-  if (request.method !== "GET" && (origin !== local.origin || request.headers.get("x-family-registration") !== "local-review")) throw new FamilyError("csrf_required", 403);
+  let parsed: URL;
+  try { parsed = new URL(request.url); } catch { throw new FamilyError("host_not_allowed", 403); }
+  if (mode === "local-review") {
+    let local: URL;
+    try { local = new URL(`http://${host}`); } catch { throw new FamilyError("local_review_only", 403); }
+    if (!host || local.pathname !== "/" || !["localhost", "127.0.0.1", "[::1]"].includes(local.hostname) || local.host !== host || local.username || local.password)
+      throw new FamilyError("local_review_only", 403);
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    const forwardedProto = request.headers.get("x-forwarded-proto");
+    if ((forwardedHost && forwardedHost !== host) || (forwardedProto && forwardedProto !== "http")) throw new FamilyError("local_review_only", 403);
+    const origin = request.headers.get("origin"); const site = request.headers.get("sec-fetch-site");
+    if ((origin && origin !== local.origin) || (site && !["same-origin", "none"].includes(site))) throw new FamilyError("same_origin_required", 403);
+    if (parsed.search) throw new FamilyError("invalid_request");
+    if (request.method !== "GET" && (origin !== local.origin || request.headers.get("x-family-registration") !== "local-review")) throw new FamilyError("csrf_required", 403);
+    return;
+  }
+  const config = previewConfig(env)!;
+  if (!host || host !== PREVIEW_CALLBACK_HOST || parsed.protocol !== "https:" || parsed.pathname !== "/api/family" || parsed.search) throw new FamilyError("preview_host_required", 403);
+  const forwardedHost = request.headers.get("x-forwarded-host"); const forwardedProto = request.headers.get("x-forwarded-proto");
+  if ((forwardedHost && forwardedHost !== PREVIEW_CALLBACK_HOST) || (forwardedProto && forwardedProto !== "https")) throw new FamilyError("preview_host_required", 403);
+  const origin = request.headers.get("origin"); const site = request.headers.get("sec-fetch-site");
+  if ((origin && origin !== `https://${PREVIEW_CALLBACK_HOST}`) || (site && !["same-origin", "none"].includes(site))) throw new FamilyError("same_origin_required", 403);
+  if (request.method !== "GET" && (origin !== `https://${PREVIEW_CALLBACK_HOST}` || request.headers.get("x-family-registration") !== "local-review")) throw new FamilyError("csrf_required", 403);
+  void config;
 }
+export function allowedPreviewEmail(email: string, env: Env = process.env) { const config = previewConfig(env); return !!config && email.trim().toLowerCase() === config.email; }
+export function previewCallbackUrl(env: Env = process.env) { return previewConfig(env)?.callback ?? null; }
+export function previewShare(env: Env = process.env) { return previewConfig(env)?.share ?? null; }
+export function previewSignupEnabled(env: Env = process.env) { return familyMode(env) !== "owner-preview" || env.ACADEMY_FAMILY_SIGNUP === "owner-test-approved"; }
+
 function configuration(env: Env) {
   if (env.ACADEMY_SUPABASE_URL !== FAMILY_PROJECT) throw new FamilyError("configuration_required", 503);
   const key = env.ACADEMY_SUPABASE_PUBLISHABLE_KEY ?? "";
@@ -112,6 +148,7 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
   async function user(token: string) {
     const u = await call("/auth/v1/user", "GET", undefined, token) as Json;
     if (!u || u.is_anonymous || !u.email_confirmed_at) throw new FamilyError("email_confirmation_required", 403);
+    if (familyMode(env) === "owner-preview" && (typeof u.email !== "string" || !allowedPreviewEmail(u.email, env))) throw new FamilyError("not_allowed", 403);
     return { id: uuid(u.id) };
   }
   async function checkAuthSettings() {
@@ -142,6 +179,7 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
     return { project: url, emailConfirmationRequired: true, emailSignupEnabled: true, anonymousTableAccess: "denied", authenticatedFlow: "not_tested", publicLaunch: "disabled" };
   }
   async function read(token: string | null) {
+    if (!familyEnabled(env)) throw new FamilyError("registration_disabled", 503);
     if (!token) return { authenticated: false, guardian: null, children: [] };
     const u = await user(token);
     const guardians = await call(`/rest/v1/academy_guardians?id=eq.${u.id}&select=id,display_name,locale`, "GET", undefined, token) as unknown[];
@@ -149,17 +187,21 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
     return { authenticated: true, guardian: guardians[0] ?? null, children };
   }
   async function act(value: Json, token: string | null) {
+    if (!familyEnabled(env)) throw new FamilyError("registration_disabled", 503);
     if (value.action === "signup") {
       shape(value, ["email", "password", "display_name", "locale", "consent"]);
       const c = credentials(value); profile(value);
+      if (familyMode(env) === "owner-preview" && !allowedPreviewEmail(c.email, env)) throw new FamilyError("not_allowed", 403);
+      if (familyMode(env) === "owner-preview" && env.ACADEMY_FAMILY_SIGNUP !== "owner-test-approved") throw new FamilyError("signup_disabled", 503);
       await checkAuthSettings();
-      // Confirmation uses the provider's configured Site URL. No user-controlled redirects.
-      await call("/auth/v1/signup", "POST", c);
+      const redirect = familyMode(env) === "owner-preview" ? `?redirect_to=${encodeURIComponent(previewCallbackUrl(env)!)}` : "";
+      await call(`/auth/v1/signup${redirect}`, "POST", c);
       return { data: { status: "confirmation_required" } };
     }
     if (value.action === "login") {
       shape(value, ["email", "password"]);
       const c = credentials(value);
+      if (familyMode(env) === "owner-preview" && !allowedPreviewEmail(c.email, env)) throw new FamilyError("not_allowed", 403);
       const session = await call("/auth/v1/token?grant_type=password", "POST", c) as Json;
       if (typeof session.access_token !== "string" || !/^[A-Za-z0-9_.-]{20,3800}$/.test(session.access_token)) throw new FamilyError("authentication_failed", 401);
       await user(session.access_token);

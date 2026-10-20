@@ -87,6 +87,25 @@ test("security permits only loopback same-origin requests and rejects forwarding
   familySecurity(request("POST", "http://localhost/", { origin: "http://localhost", "x-family-registration": "local-review" }), env());
 });
 
+test("preview configuration requires the immutable branch, exact HTTPS origin, and one safe share", () => {
+  const base = { ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_ALLOWED_EMAIL: "owner@example.test", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share", ACADEMY_FAMILY_SIGNUP: "owner-test-approved" };
+  assert.equal(familyEnabled(env(base)), true);
+  for (const bad of [
+    { VERCEL_GIT_COMMIT_REF: undefined },
+    { VERCEL_GIT_COMMIT_REF: "preview/other" },
+    { ACADEMY_FAMILY_CALLBACK_URL: base.ACADEMY_FAMILY_CALLBACK_URL!.replace("https://", "https://:443") },
+    { ACADEMY_FAMILY_CALLBACK_URL: base.ACADEMY_FAMILY_CALLBACK_URL!.replace("synthetic_share", "short") },
+    { ACADEMY_FAMILY_CALLBACK_URL: base.ACADEMY_FAMILY_CALLBACK_URL + "&extra=x" },
+    { ACADEMY_FAMILY_CALLBACK_URL: base.ACADEMY_FAMILY_CALLBACK_URL!.replace("vercel.app/", "vercel.app:8443/") },
+  ]) assert.equal(familyEnabled(env({ ...base, ...bad })), false);
+});
+
+test("preview signup remains closed without independent approval and makes no provider call", async () => {
+  const m = mockFetch();
+  await rejectsCode(familyAdapter(env({ ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_ALLOWED_EMAIL: "owner@example.test", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share" }), m.fetcher).act({ action: "signup", email: "owner@example.test", password: "long-enough-password", display_name: "A User", locale: "en", consent: true }, null), "signup_disabled", 503);
+  assert.equal(m.calls.length, 0);
+});
+
 test("configuration rejects wrong project and service-role or malformed keys", async () => {
   for (const bad of [
     { ACADEMY_SUPABASE_URL: "https://wrong.supabase.co" },
