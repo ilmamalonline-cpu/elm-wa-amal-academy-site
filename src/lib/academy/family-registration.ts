@@ -1,4 +1,5 @@
 import { syntheticLearnerWorkspace } from "./learner";
+import { emptyLearning, type LearningData, type LearningPlan, type PracticeEntry } from "./learning";
 
 // Server-side adapter. Never import this module into a client component.
 // No service-role key, role selection, demo identity or child credentials are accepted.
@@ -87,8 +88,8 @@ function configuration(env: Env) {
 function shape(value: Json, keys: string[]) {
   if (Object.keys(value).sort().join(",") !== ["action", ...keys].sort().join(",")) throw new FamilyError("invalid_request");
 }
-function text(value: unknown, min: number, max: number) {
-  if (typeof value !== "string" || value.trim().length < min || value.trim().length > max || [...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) throw new FamilyError("invalid_request");
+function text(value: unknown, min: number, max: number, multiline = false) {
+  if (typeof value !== "string" || value.trim().length < min || value.trim().length > max || [...value].some((character) => (character.charCodeAt(0) < 32 && !(multiline && [10, 13].includes(character.charCodeAt(0)))) || character.charCodeAt(0) === 127)) throw new FamilyError("invalid_request");
   return value.trim();
 }
 function profile(value: Json) {
@@ -157,6 +158,33 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
     if (!u || u.is_anonymous || !u.email_confirmed_at) throw new FamilyError("email_confirmation_required", 403);
     if (familyMode(env) === "owner-preview" && (typeof u.email !== "string" || !allowedPreviewEmail(u.email, env))) throw new FamilyError("not_allowed", 403);
     return { id: uuid(u.id) };
+  }
+  async function ownedChild(childId: string, guardianId: string, token: string, includeName = false) {
+    const guardians = await call(`/rest/v1/academy_guardians?id=eq.${guardianId}&select=id&limit=1`, "GET", undefined, token);
+    if (!Array.isArray(guardians) || guardians.length !== 1 || guardians[0]?.id !== guardianId) throw new FamilyError("not_allowed", 403);
+    const children = await call(`/rest/v1/academy_children?id=eq.${childId}&guardian_id=eq.${guardianId}&select=${includeName ? "id,display_name" : "id"}&limit=1`, "GET", undefined, token);
+    if (!Array.isArray(children)) throw new FamilyError("provider_unavailable", 503);
+    if (!children.length) throw new FamilyError("not_found", 404);
+    const selected = children[0];
+    if (children.length !== 1 || selected?.id !== childId || (includeName && (typeof selected.display_name !== "string" || !selected.display_name.trim() || selected.display_name.length > 200))) throw new FamilyError("provider_unavailable", 503);
+    return selected;
+  }
+  async function learning(childId: string, guardianId: string, token: string): Promise<LearningData> {
+    const scope = `child_id=eq.${childId}&guardian_id=eq.${guardianId}`;
+    const plans = await call(`/rest/v1/academy_learning_plans?${scope}&select=goal,weekly_target_minutes,updated_at&limit=1`, "GET", undefined, token);
+    const entries = await call(`/rest/v1/academy_practice_entries?${scope}&select=id,activity,minutes,practiced_on,note,created_at&order=practiced_on.desc,created_at.desc,id.desc&limit=100`, "GET", undefined, token);
+    if (!Array.isArray(plans) || plans.length > 1 || !Array.isArray(entries) || entries.length > 100) throw new FamilyError("provider_unavailable", 503);
+    if (plans.some(p => !p || typeof p.goal !== "string" || !Number.isInteger(p.weekly_target_minutes) || typeof p.updated_at !== "string") || entries.some(e => !e || typeof e.id !== "string" || typeof e.activity !== "string" || !Number.isInteger(e.minutes) || typeof e.practiced_on !== "string" || typeof e.note !== "string" || typeof e.created_at !== "string")) throw new FamilyError("provider_unavailable", 503);
+    // Explicit allowlist avoids forwarding ownership IDs or unexpected provider fields.
+    const plan: LearningPlan | null = plans[0] ? { goal: plans[0].goal, weekly_target_minutes: plans[0].weekly_target_minutes, updated_at: plans[0].updated_at } : null;
+    const safeEntries: PracticeEntry[] = entries.map(e => ({ id: e.id, activity: e.activity, minutes: e.minutes, practiced_on: e.practiced_on, note: e.note, created_at: e.created_at }));
+    return { plan, entries: safeEntries, summary: { entry_count: safeEntries.length, total_minutes: safeEntries.reduce((sum, e) => sum + e.minutes, 0), scope: "latest-100" } };
+  }
+  function practice(value: Json) {
+    if (!Number.isInteger(value.minutes) || Number(value.minutes) < 1 || Number(value.minutes) > 240 || typeof value.practiced_on !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.practiced_on)) throw new FamilyError("invalid_request");
+    const date = new Date(`${value.practiced_on}T00:00:00Z`);
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value.practiced_on || value.practiced_on > new Date().toISOString().slice(0, 10) || value.practiced_on < "2000-01-01") throw new FamilyError("invalid_request");
+    return { activity: text(value.activity, 1, 120), minutes: value.minutes, practiced_on: value.practiced_on, note: text(value.note, 0, 500, true) };
   }
   async function checkAuthSettings() {
     const settings = await call("/auth/v1/settings") as Json;
@@ -228,16 +256,40 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
       shape(value, ["child_id", "locale"]);
       const childId = uuid(value.child_id);
       if (value.locale !== "ar" && value.locale !== "en") throw new FamilyError("invalid_request");
-      // Both queries run as the verified user, subject to Supabase RLS. Never
-      // accept guardian IDs, roles, names or educational records from the client.
-      const guardians = await call(`/rest/v1/academy_guardians?id=eq.${u.id}&select=id&limit=1`, "GET", undefined, token);
-      if (!Array.isArray(guardians) || guardians.length !== 1 || guardians[0]?.id !== u.id) throw new FamilyError("not_allowed", 403);
-      const children = await call(`/rest/v1/academy_children?id=eq.${childId}&guardian_id=eq.${u.id}&select=id,display_name&limit=1`, "GET", undefined, token);
-      if (!Array.isArray(children)) throw new FamilyError("provider_unavailable", 503);
-      if (!children.length) throw new FamilyError("not_found", 404);
-      const selected = children[0];
-      if (children.length !== 1 || selected?.id !== childId || typeof selected.display_name !== "string" || !selected.display_name.trim() || selected.display_name.length > 200) throw new FamilyError("provider_unavailable", 503);
-      return { data: syntheticLearnerWorkspace({ id: childId, display_name: selected.display_name }, value.locale) };
+      const selected = await ownedChild(childId, u.id, token, true);
+      const stored = familyMode(env) === "owner-preview" ? await learning(childId, u.id, token) : emptyLearning();
+      return { data: { ...syntheticLearnerWorkspace({ id: childId, display_name: selected.display_name }, value.locale), learning: stored } };
+    }
+    if (["save-learning-plan", "delete-learning-plan", "add-practice", "update-practice", "delete-practice"].includes(String(value.action))) {
+      // No persistence path may target the legacy/Production or local-review project.
+      if (familyMode(env) !== "owner-preview" || url !== PREVIEW_PROJECT) throw new FamilyError("registration_disabled", 503);
+      const isPlan = value.action === "save-learning-plan";
+      const isPractice = value.action === "add-practice" || value.action === "update-practice";
+      const fields = isPlan ? ["goal", "weekly_target_minutes"] : isPractice ? ["activity", "minutes", "practiced_on", "note"] : [];
+      if (value.action === "update-practice" || value.action === "delete-practice") fields.push("id");
+      shape(value, ["child_id", ...fields]);
+      const childId = uuid(value.child_id);
+      const entryId = fields.includes("id") ? uuid(value.id) : null;
+      let payload: Json | undefined;
+      if (isPlan) {
+        if (!Number.isInteger(value.weekly_target_minutes) || Number(value.weekly_target_minutes) < 1 || Number(value.weekly_target_minutes) > 840) throw new FamilyError("invalid_request");
+        payload = { goal: text(value.goal, 1, 500), weekly_target_minutes: value.weekly_target_minutes };
+      } else if (isPractice) payload = practice(value);
+      await ownedChild(childId, u.id, token);
+      const scope = `child_id=eq.${childId}&guardian_id=eq.${u.id}`;
+      if (isPlan) {
+        const rows = await call(`/rest/v1/academy_learning_plans?${scope}&select=goal`, "PATCH", payload, token, "return=representation");
+        if (!Array.isArray(rows) || rows.length > 1) throw new FamilyError("provider_unavailable", 503);
+        if (!rows.length) await call("/rest/v1/academy_learning_plans", "POST", { child_id: childId, guardian_id: u.id, ...payload }, token, "return=minimal");
+      } else if (value.action === "delete-learning-plan") {
+        await call(`/rest/v1/academy_learning_plans?${scope}`, "DELETE", undefined, token, "return=minimal");
+      } else if (value.action === "add-practice") {
+        await call("/rest/v1/academy_practice_entries", "POST", { child_id: childId, guardian_id: u.id, ...payload }, token, "return=minimal");
+      } else {
+        const rows = await call(`/rest/v1/academy_practice_entries?${scope}&id=eq.${entryId}&select=id`, value.action === "update-practice" ? "PATCH" : "DELETE", payload, token, "return=representation");
+        if (!Array.isArray(rows) || rows.length !== 1 || rows[0]?.id !== entryId) throw new FamilyError("not_found", 404);
+      }
+      return { data: { status: "saved" } };
     }
     if (value.action === "save-guardian") {
       shape(value, ["display_name", "locale", "consent"]);

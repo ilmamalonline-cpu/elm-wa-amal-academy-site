@@ -13,7 +13,7 @@ const env = {
   ACADEMY_SUPABASE_URL: PREVIEW_PROJECT, ACADEMY_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_synthetic_offline_example",
   ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic-share",
 };
-function setup(options: { user?: unknown; guardians?: unknown; children?: unknown; status?: number; throws?: boolean } = {}) {
+function setup(options: { user?: unknown; guardians?: unknown; children?: unknown; plans?: unknown; entries?: unknown; status?: number; throws?: boolean } = {}) {
   const calls: { url: URL; init: RequestInit }[] = [];
   const fetcher: typeof fetch = async (input, init = {}) => {
     const url = new URL(String(input)); calls.push({ url, init });
@@ -22,6 +22,8 @@ function setup(options: { user?: unknown; guardians?: unknown; children?: unknow
     if (url.pathname === "/auth/v1/user") return Response.json(options.user ?? { id: guardian, email: PREVIEW_OWNER_EMAIL, email_confirmed_at: "2026-01-01T00:00:00Z" });
     if (url.pathname.endsWith("/academy_guardians")) return Response.json(options.guardians ?? [{ id: guardian }]);
     if (url.pathname.endsWith("/academy_children")) return Response.json(options.children ?? [{ id: child, display_name: "Synthetic learner", birth_year: 2015, guardian_id: guardian }]);
+    if (url.pathname.endsWith("/academy_learning_plans")) return Response.json(options.plans ?? []);
+    if (url.pathname.endsWith("/academy_practice_entries")) return Response.json(options.entries ?? []);
     throw new Error("Unexpected provider endpoint");
   };
   return { adapter: familyAdapter(env, fetcher), calls };
@@ -45,7 +47,7 @@ test("learner requires authenticated guardian; no anonymous child login or role 
 test("owner-scoped RLS reads use verified user token, minimal columns, explicit limits and no writes", async () => {
   const { adapter, calls } = setup();
   const result = await adapter.act(action(), token);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 5);
   assert.ok("child" in result.data);
   assert.deepEqual(result.data.child, { id: child, display_name: "Synthetic learner" });
   assert.equal(result.data.contentMode, "synthetic-only");
@@ -63,7 +65,10 @@ test("owner-scoped RLS reads use verified user token, minimal columns, explicit 
     assert.equal(call.init.redirect, "error");
     assert.equal(new Headers(call.init.headers).get("authorization"), `Bearer ${token}`);
     assert.equal(call.init.body, undefined);
-    if (call.url.pathname.includes("/rest/")) assert.equal(call.url.searchParams.get("limit"), "1");
+    if (call.url.pathname.endsWith("/academy_guardians")) assert.equal(call.url.searchParams.get("limit"), "1");
+    if (call.url.pathname.endsWith("/academy_children")) assert.equal(call.url.searchParams.get("limit"), "1");
+    if (call.url.pathname.endsWith("/academy_learning_plans")) assert.equal(call.url.searchParams.get("limit"), "1");
+    if (call.url.pathname.endsWith("/academy_practice_entries")) assert.equal(call.url.searchParams.get("limit"), "100");
   }
   assert.doesNotMatch(JSON.stringify(result), /birth_year|guardian_id|access_token|refresh_token|publishable|email/);
 });

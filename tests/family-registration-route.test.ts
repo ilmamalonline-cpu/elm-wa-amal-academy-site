@@ -165,7 +165,10 @@ test("learner HTTP uses existing scoped cookie and returns private no-store data
     if (url.pathname === "/auth/v1/user") return Response.json({ id, email: "abdelrahmanbakri113@gmail.com", email_confirmed_at: "2026-01-01T00:00:00Z" });
     if (url.pathname.endsWith("academy_guardians")) return Response.json([{ id }]);
     assert.equal(url.searchParams.get("guardian_id"), `eq.${id}`);
-    return Response.json([{ id: childId, display_name: "Synthetic learner" }]);
+    if (url.pathname.endsWith("academy_children")) return Response.json([{ id: childId, display_name: "Synthetic learner" }]);
+    if (url.pathname.endsWith("academy_learning_plans")) return Response.json([]);
+    if (url.pathname.endsWith("academy_practice_entries")) return Response.json([]);
+    throw new Error("Unexpected provider endpoint");
   };
   const request = previewReq({ action: "learner-workspace", child_id: childId, locale: "en" });
   request.headers.set("cookie", `academy_family_access=${accessToken}`);
@@ -178,7 +181,7 @@ test("learner HTTP uses existing scoped cookie and returns private no-store data
   assert.equal(data.child.id, childId); assert.equal(data.locale, "en");
   assert.equal(data.progress, null); assert.deepEqual(data.reports, []);
   assert.doesNotMatch(JSON.stringify(data), /access_token|refresh_token|sb_publishable|birth_year|guardian_id/);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 5);
 }));
 
 test("learner HTTP denies unsigned, expired and cross-origin access with no personal data", async () => isolated(async () => {
