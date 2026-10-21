@@ -1,3 +1,5 @@
+import { syntheticLearnerWorkspace } from "./learner";
+
 // Server-side adapter. Never import this module into a client component.
 // No service-role key, role selection, demo identity or child credentials are accepted.
 export const FAMILY_PROJECT = "https://vbulxdnfknoybdkuhayz.supabase.co";
@@ -222,6 +224,21 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
     }
     if (!token) throw new FamilyError("sign_in_required", 401);
     const u = await user(token);
+    if (value.action === "learner-workspace") {
+      shape(value, ["child_id", "locale"]);
+      const childId = uuid(value.child_id);
+      if (value.locale !== "ar" && value.locale !== "en") throw new FamilyError("invalid_request");
+      // Both queries run as the verified user, subject to Supabase RLS. Never
+      // accept guardian IDs, roles, names or educational records from the client.
+      const guardians = await call(`/rest/v1/academy_guardians?id=eq.${u.id}&select=id&limit=1`, "GET", undefined, token);
+      if (!Array.isArray(guardians) || guardians.length !== 1 || guardians[0]?.id !== u.id) throw new FamilyError("not_allowed", 403);
+      const children = await call(`/rest/v1/academy_children?id=eq.${childId}&guardian_id=eq.${u.id}&select=id,display_name&limit=1`, "GET", undefined, token);
+      if (!Array.isArray(children)) throw new FamilyError("provider_unavailable", 503);
+      if (!children.length) throw new FamilyError("not_found", 404);
+      const selected = children[0];
+      if (children.length !== 1 || selected?.id !== childId || typeof selected.display_name !== "string" || !selected.display_name.trim() || selected.display_name.length > 200) throw new FamilyError("provider_unavailable", 503);
+      return { data: syntheticLearnerWorkspace({ id: childId, display_name: selected.display_name }, value.locale) };
+    }
     if (value.action === "save-guardian") {
       shape(value, ["display_name", "locale", "consent"]);
       await call("/rest/v1/academy_guardians?on_conflict=id", "POST", { id: u.id, ...profile(value) }, token, "resolution=merge-duplicates,return=minimal");

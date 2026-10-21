@@ -30,6 +30,8 @@
     "test:preview": "playwright test --config=playwright.preview.config.ts",
     "test:family": "tsx --test --test-concurrency=1 tests/family-registration.test.ts tests/family-registration-route.test.ts tests/family-callback.test.ts && node --test --test-concurrency=1 tests/family-registration-db.test.mjs",
     "test:family:browser": "playwright test --config=playwright.family.config.ts",
+    "test:learner": "tsx --test --test-concurrency=1 tests/learner-workspace.test.ts",
+    "test:learner:browser": "playwright test --config=playwright.learner.config.ts",
     "check:family:connection": "tsx scripts/family-review.ts --check",
     "dev:family": "tsx scripts/family-review.ts --serve"
   },

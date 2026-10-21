@@ -152,3 +152,49 @@ test("preview login validates provider email and stores only a Secure HttpOnly a
   assert.equal(denied.status, 403);
   assert.equal(denied.headers.has("set-cookie"), false);
 }));
+
+// Synthetic provider responses only: never log in to the owner's actual family.
+test("learner HTTP uses existing scoped cookie and returns private no-store data without credentials", async () => isolated(async () => {
+  enablePreview(); process.env.ACADEMY_FAMILY_SIGNUP = "disabled";
+  const childId = "22222222-2222-4222-8222-222222222222";
+  const calls: URL[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input)); calls.push(url);
+    assert.equal(init?.method, "GET");
+    assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${accessToken}`);
+    if (url.pathname === "/auth/v1/user") return Response.json({ id, email: "abdelrahmanbakri113@gmail.com", email_confirmed_at: "2026-01-01T00:00:00Z" });
+    if (url.pathname.endsWith("academy_guardians")) return Response.json([{ id }]);
+    assert.equal(url.searchParams.get("guardian_id"), `eq.${id}`);
+    return Response.json([{ id: childId, display_name: "Synthetic learner" }]);
+  };
+  const request = previewReq({ action: "learner-workspace", child_id: childId, locale: "en" });
+  request.headers.set("cookie", `academy_family_access=${accessToken}`);
+  const result = await POST(request);
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("cache-control"), "private, no-store");
+  assert.equal(result.headers.get("vary"), "Cookie");
+  assert.equal(result.headers.has("set-cookie"), false);
+  const data = await result.json();
+  assert.equal(data.child.id, childId); assert.equal(data.locale, "en");
+  assert.equal(data.progress, null); assert.deepEqual(data.reports, []);
+  assert.doesNotMatch(JSON.stringify(data), /access_token|refresh_token|sb_publishable|birth_year|guardian_id/);
+  assert.equal(calls.length, 3);
+}));
+
+test("learner HTTP denies unsigned, expired and cross-origin access with no personal data", async () => isolated(async () => {
+  enablePreview(); process.env.ACADEMY_FAMILY_SIGNUP = "disabled";
+  const action = { action: "learner-workspace", child_id: "22222222-2222-4222-8222-222222222222", locale: "ar" };
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return new Response(null, { status: 401 }); };
+  const unsigned = await POST(previewReq(action));
+  assert.equal(unsigned.status, 401); assert.deepEqual(await unsigned.json(), { error: "sign_in_required" });
+  assert.equal(calls, 0);
+  const crossOrigin = previewReq(action, "https://evil.example");
+  crossOrigin.headers.set("cookie", `academy_family_access=${accessToken}`);
+  assert.equal((await POST(crossOrigin)).status, 403); assert.equal(calls, 0);
+  const expired = previewReq(action); expired.headers.set("cookie", `academy_family_access=${accessToken}`);
+  const response = await POST(expired);
+  assert.equal(response.status, 401); assert.deepEqual(await response.json(), { error: "sign_in_required" });
+  assert.match(response.headers.get("set-cookie")!, /Path=\/api\/family; HttpOnly; SameSite=Strict; Secure; Max-Age=0/);
+  assert.equal(calls, 1);
+}));
