@@ -8,6 +8,9 @@ import {
   familyToken,
   FamilyError,
   FAMILY_PROJECT,
+  PREVIEW_PROJECT,
+  PREVIEW_OWNER_EMAIL,
+  allowedPreviewEmail,
 } from "../src/lib/academy/family-registration";
 
 type Env = Record<string, string | undefined>;
@@ -88,7 +91,7 @@ test("security permits only loopback same-origin requests and rejects forwarding
 });
 
 test("preview configuration requires the immutable branch, exact HTTPS origin, and one safe share", () => {
-  const base = { ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_ALLOWED_EMAIL: "owner@example.test", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share", ACADEMY_FAMILY_SIGNUP: "owner-test-approved" };
+  const base = { ACADEMY_SUPABASE_URL: PREVIEW_PROJECT, ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_ALLOWED_EMAIL: "abdelrahmanbakri113@gmail.com", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share", ACADEMY_FAMILY_SIGNUP: "owner-test-approved" };
   assert.equal(familyEnabled(env(base)), true);
   for (const bad of [
     { VERCEL_GIT_COMMIT_REF: undefined },
@@ -102,9 +105,22 @@ test("preview configuration requires the immutable branch, exact HTTPS origin, a
 
 test("preview signup remains closed without independent approval and makes no provider call", async () => {
   const m = mockFetch();
-  await rejectsCode(familyAdapter(env({ ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_ALLOWED_EMAIL: "owner@example.test", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share" }), m.fetcher).act({ action: "signup", email: "owner@example.test", password: "long-enough-password", display_name: "A User", locale: "en", consent: true }, null), "signup_disabled", 503);
+  await rejectsCode(familyAdapter(env({ ACADEMY_SUPABASE_URL: PREVIEW_PROJECT, ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_ALLOWED_EMAIL: "abdelrahmanbakri113@gmail.com", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share" }), m.fetcher).act({ action: "signup", email: PREVIEW_OWNER_EMAIL, password: "long-enough-password", display_name: "A User", locale: "en", consent: true }, null), "signup_disabled", 503);
   assert.equal(m.calls.length, 0);
 });
+
+test("preview whitelist is immutable, rejects old project, wrong branch, and production flags without calls", async () => {
+  const preview = { ACADEMY_SUPABASE_URL: PREVIEW_PROJECT, ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_ALLOWED_EMAIL: "attacker@example.test", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share", ACADEMY_FAMILY_SIGNUP: "owner-test-approved" };
+  assert.equal(familyEnabled(env(preview)), true);
+  assert.equal(familyEnabled(env({ ...preview, ACADEMY_SUPABASE_URL: FAMILY_PROJECT })), false);
+  await rejectsCode(Promise.resolve().then(() => familyAdapter(env({ ...preview, ACADEMY_SUPABASE_URL: FAMILY_PROJECT })).act({ action: "login", email: PREVIEW_OWNER_EMAIL, password: "long-enough-password" }, null)), "registration_disabled", 503);
+  await rejectsCode(familyAdapter(env(preview), mockFetch().fetcher).act({ action: "login", email: "attacker@example.test", password: "long-enough-password" }, null), "not_allowed", 403);
+  assert.equal(allowedPreviewEmail(PREVIEW_OWNER_EMAIL, env(preview)), true);
+  assert.equal(allowedPreviewEmail("attacker@example.test", env(preview)), false);
+  for (const flags of [{ VERCEL_ENV: "production" }, { VERCEL_GIT_COMMIT_REF: "preview/other" }]) assert.equal(familyEnabled(env({ ...preview, ...flags })), false);
+});
+
+
 
 test("configuration rejects wrong project and service-role or malformed keys", async () => {
   for (const bad of [
@@ -240,7 +256,7 @@ test("readiness performs only fixed GET probes and returns no credentials or raw
   }
   assert.doesNotMatch(JSON.stringify(result), /sb_publishable_|password|access_token|permission denied/);
   const blocked = mockFetch();
-  await rejectsCode(familyAdapter(env({ VERCEL: "1" }), blocked.fetcher).readiness(), "registration_disabled", 503);
+  await rejectsCode(Promise.resolve().then(() => familyAdapter(env({ VERCEL: "1" }), blocked.fetcher).readiness()), "registration_disabled", 503);
   assert.equal(blocked.calls.length, 0);
 });
 

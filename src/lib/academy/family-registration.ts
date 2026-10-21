@@ -1,6 +1,8 @@
 // Server-side adapter. Never import this module into a client component.
 // No service-role key, role selection, demo identity or child credentials are accepted.
 export const FAMILY_PROJECT = "https://vbulxdnfknoybdkuhayz.supabase.co";
+export const PREVIEW_PROJECT = "https://dyyvpcntbbwbuzskiidb.supabase.co";
+export const PREVIEW_OWNER_EMAIL = "abdelrahmanbakri113@gmail.com";
 export const FAMILY_COOKIE = "academy_family_access";
 export const FAMILY_HEADERS = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 export const PREVIEW_CALLBACK_HOST = "elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app";
@@ -10,12 +12,11 @@ type Json = Record<string, unknown>;
 export class FamilyError extends Error {
   constructor(public code: string, public status = 400) { super(code); }
 }
-function validEmail(value: string | undefined) { return !!value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value === value.toLowerCase(); }
 function previewConfig(env: Env) {
-  if (env.VERCEL !== "1" || env.VERCEL_ENV !== "preview" || env.VERCEL_GIT_COMMIT_REF !== "preview/academy-synthetic" || env.ACADEMY_FAMILY_REGISTRATION !== "owner-preview") return null;
-  const email = env.ACADEMY_FAMILY_ALLOWED_EMAIL?.trim();
+  if (env.VERCEL !== "1" || env.VERCEL_ENV !== "preview" || env.VERCEL_GIT_COMMIT_REF !== "preview/academy-synthetic" || env.ACADEMY_FAMILY_REGISTRATION !== "owner-preview" || env.ACADEMY_SUPABASE_URL !== PREVIEW_PROJECT) return null;
+  const email = PREVIEW_OWNER_EMAIL;
   const callback = env.ACADEMY_FAMILY_CALLBACK_URL;
-  if (!validEmail(email) || !callback) return null;
+  if (!callback) return null;
   try {
     const parsed = new URL(callback);
     const shareValues = parsed.searchParams.getAll("_vercel_share");
@@ -59,23 +60,27 @@ export function familySecurity(request: Request, env: Env = process.env) {
   if (request.method !== "GET" && (origin !== `https://${PREVIEW_CALLBACK_HOST}` || request.headers.get("x-family-registration") !== "local-review")) throw new FamilyError("csrf_required", 403);
   void config;
 }
-export function allowedPreviewEmail(email: string, env: Env = process.env) { const config = previewConfig(env); return !!config && email.trim().toLowerCase() === config.email; }
+export function allowedPreviewEmail(email: string, env: Env = process.env) { const config = previewConfig(env); return !!config && email.trim().toLowerCase() === PREVIEW_OWNER_EMAIL; }
 export function previewCallbackUrl(env: Env = process.env) { return previewConfig(env)?.callback ?? null; }
 export function previewShare(env: Env = process.env) { return previewConfig(env)?.share ?? null; }
 export function previewSignupEnabled(env: Env = process.env) { return familyMode(env) !== "owner-preview" || env.ACADEMY_FAMILY_SIGNUP === "owner-test-approved"; }
 
 function configuration(env: Env) {
-  if (env.ACADEMY_SUPABASE_URL !== FAMILY_PROJECT) throw new FamilyError("configuration_required", 503);
+  const mode = familyMode(env);
+  if (!mode) throw new FamilyError("registration_disabled", 503);
+  const url = mode === "owner-preview" ? PREVIEW_PROJECT : FAMILY_PROJECT;
+  if (!url || env.ACADEMY_SUPABASE_URL !== url) throw new FamilyError("configuration_required", 503);
   const key = env.ACADEMY_SUPABASE_PUBLISHABLE_KEY ?? "";
   let publicKey = key.startsWith("sb_publishable_") && key.length > 25;
   if (!publicKey) {
     try {
       const claims = JSON.parse(Buffer.from(key.split(".")[1], "base64url").toString());
-      publicKey = claims.role === "anon" && claims.ref === "vbulxdnfknoybdkuhayz";
+      const expectedRef = new URL(url).hostname.split(".")[0];
+      publicKey = claims.role === "anon" && claims.ref === expectedRef;
     } catch { /* Reject absent, malformed, secret or service-role keys. */ }
   }
   if (!publicKey) throw new FamilyError("configuration_required", 503);
-  return { url: FAMILY_PROJECT, key };
+  return { url, key };
 }
 function shape(value: Json, keys: string[]) {
   if (Object.keys(value).sort().join(",") !== ["action", ...keys].sort().join(",")) throw new FamilyError("invalid_request");
