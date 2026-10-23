@@ -108,6 +108,7 @@ test("review-only page shows the form but makes no Auth request and cannot submi
   await expect(page.getByText(/READ-ONLY REVIEW/)).toBeVisible();
   await expect(page.getByLabel("New password", { exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Set password" })).toBeDisabled();
+  await expect(page.locator("p.foot")).toHaveCount(1);
   expect(mock.counts()).toEqual({ gets: 0, updates: 0 });
 });
 
