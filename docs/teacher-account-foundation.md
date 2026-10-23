@@ -6,7 +6,7 @@
 
 An existing approved adult signs in using Supabase password authentication. Every operation verifies `/auth/v1/user`, rejects anonymous/unconfirmed identities, and requires an active stored teacher profile. Calls use the caller's access token and a public application key, never an administrative key. A narrow HttpOnly, SameSite=Strict cookie is scoped to `/api/teacher`, Secure on the approved HTTPS Preview alias. No refresh token is stored or returned. Expiry requires signing in again; logout changes only this cookie.
 
-No account creation, teacher signup, invitations, emails, reset flow, privileged Auth operation, roster, assignment or administrative schedule operation is exposed. Public signup stays closed. Children do not log in.
+Public signup remains closed. The Preview-only `/auth/teacher/invite` callback accepts a valid Supabase invitation token only when it belongs to the single approved email `ilmamalonline@gmail.com`, then lets that recipient choose a password; it does not send invitations, persist the invite token or password, create a teacher profile, grant workspace access, or create assignments or lessons. It uses only the preview project's public Auth API key and keeps the token in page memory only. A display-only `?review=1` view is provided for owner review, omits the recipient email, and makes no Auth requests. No privileged Auth operation, roster, assignment or administrative schedule operation is exposed. Children do not log in.
 
 ## The only teacher-editable fields
 
@@ -33,7 +33,7 @@ The guardian endpoint independently verifies the adult identity and child owners
 
 `/teacher-demo` remains synthetic and session-local, separate from real APIs and Supabase. No hosted teacher account, invitation, assignment, lesson or fixture is created. All successful teacher-edit and cross-family test fixtures live only in disposable localhost PostgreSQL or local browser mocks. The existing hosted family account and child profile are not read or changed during this step.
 
-Old Supabase `vbulxdnfknoybdkuhayz`, main, Production, Auth providers/URLs/SMTP, Vercel protection/share links, billing, payments, Zoom, materials and recordings are outside this change. The original foundation SQL remains an historical migration; applying the new outcome migration is required for the new routes.
+Old Supabase `vbulxdnfknoybdkuhayz`, main, Production, Auth providers/URLs/SMTP, Vercel protection/share links, billing, payments, Zoom, materials and recordings are outside this change. The invitation redirect builder reuses the already-configured Preview callback host and protection token but does not alter settings; the Supabase Auth redirect allowlist must still be checked before any invitation is sent. The original foundation SQL remains an historical migration; applying the new outcome migration is required for the new routes.
 
 ## Verification
 
@@ -43,4 +43,4 @@ Hosted verification reads schema/privilege metadata and empty teacher/session ta
 
 ## Next provisioning decision
 
-A separately approved real administrative provisioning workflow must exist before adding any adult teacher, child assignment or timetable. This update does not authorize provisioning or Production rollout.
+A separately approved real administrative provisioning workflow must exist before adding any adult teacher, child assignment or timetable. A password set by an invitee alone does not activate a teacher account. This update does not authorize sending an invitation, provisioning a profile, creating an assignment or timetable, or Production rollout.

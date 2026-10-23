@@ -41,6 +41,8 @@
     "test:teacher:workspace": "NODE_OPTIONS=--conditions=react-server tsx --test --test-concurrency=1 tests/teacher-workspace.test.ts",
     "test:teacher:real:browser": "playwright test --config=playwright.teacher-real.config.ts",
     "test:teacher:outcomes": "tsx --test --test-concurrency=1 tests/teacher-session-outcomes.test.ts && node --test --test-concurrency=1 tests/teacher-session-outcomes-db.test.mjs",
+    "test:teacher:invite": "tsx --test --test-concurrency=1 tests/teacher-invite.test.ts",
+    "test:teacher:invite:browser": "playwright test --config=playwright.teacher-invite.config.ts",
     "test:family:summaries": "tsx --test --test-concurrency=1 tests/family-session-summaries.test.ts"
   },
   "dependencies": {
