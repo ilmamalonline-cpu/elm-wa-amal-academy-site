@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { locales, pageKeys } from "@/content/site";
 import { teacherDemoEnabled } from "@/lib/academy/teacher-demo-access";
+import { enabled as teacherEnabled } from "@/lib/academy/teacher-foundation";
+import { teacherWorkspaceHost } from "@/lib/academy/teacher-workspace";
 
 // Routing only: this is not authorization and never connects to a service.
 export function proxy(request: NextRequest) {
@@ -14,14 +16,14 @@ export function proxy(request: NextRequest) {
   const parts = path.split("/").filter(Boolean);
   requestHeaders.set("x-site-locale", parts[0] === "en" ? "en" : "ar");
 
-  if (path.startsWith("/api/phase2/") || path.startsWith("/api/manual-payments/") || path === "/api/academy-demo" || path === "/api/family" || path === "/auth/family/callback" || path.startsWith("/fonts/")) {
+  if (path.startsWith("/api/phase2/") || path.startsWith("/api/manual-payments/") || path === "/api/academy-demo" || path === "/api/family" || path === "/api/teacher" || path === "/auth/family/callback" || path.startsWith("/fonts/")) {
     // Identity verification and PostgreSQL RLS live in the server handler.
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   const knownRoute = path === "/" || (
     (locales as readonly string[]).includes(parts[0]) &&
-    (parts.length === 1 || (parts.length === 2 && (["workspace", "family"].includes(parts[1]) || (parts[1] === "teacher-demo" && teacherDemoEnabled(process.env, request.headers.get("host"))) || (pageKeys as readonly string[]).includes(parts[1]))))
+    (parts.length === 1 || (parts.length === 2 && (["workspace", "family"].includes(parts[1]) || (parts[1] === "teacher" && teacherEnabled(process.env) && teacherWorkspaceHost(request.headers.get("host"))) || (parts[1] === "teacher-demo" && teacherDemoEnabled(process.env, request.headers.get("host"))) || (pageKeys as readonly string[]).includes(parts[1]))))
   );
   if (!knownRoute) {
     // Explicit status avoids a soft-404 when a loading boundary streams early.

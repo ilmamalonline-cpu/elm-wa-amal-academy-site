@@ -1,33 +1,31 @@
-# Teacher accounts and individual schedules — Preview foundation
+# Protected teacher workspace — Preview only
 
-This is preparation, not an account rollout. It targets only branch `preview/academy-synthetic` and Supabase project `dyyvpcntbbwbuzskiidb`. Never apply `db/teacher-foundation.sql` to Production or the old Supabase project. The operator must explicitly verify the project ID before applying; SQL alone does not establish the hosted project's identity.
+## What is connected
 
-## What exists
+`/ar/teacher` and `/en/teacher` are the real, read-only teacher workspace. They use the existing separate Supabase Preview project `dyyvpcntbbwbuzskiidb`, only on branch `preview/academy-synthetic`. Production, other branches/projects and unapproved hosts fail closed. The pages are dynamic and noindex; the API is private/no-store.
 
-- Empty `academy_teachers` profiles linked to existing adult Auth identities. Profiles default to `suspended`; no emails or passwords are stored in these tables.
-- Empty `academy_teacher_assignments` linking a teacher to one existing child. Assignments default to `inactive`.
-- Empty `academy_individual_lessons`: exactly one teacher and one child per row, an approved subject identifier, absolute start/end instants, a valid named time zone, and scheduled/cancelled status.
-- Atomic exclusion constraints reject overlapping scheduled lessons for either teacher or child. Adjacent lessons are allowed; cancelled lessons do not reserve time. Named zones support Cairo daylight-saving conversion; the operator must resolve a local time to its exact instant before a future write.
-- Forced RLS: an active teacher reads only their own profile, active assignments and assigned lessons. Suspending a teacher or revoking an assignment removes teacher access immediately. A guardian can read lessons only through ownership of their child. Teacher access does not expand permissions on existing child, guardian or learning tables.
-- Authenticated users have SELECT only on the new tables; anonymous users have no access. Clients cannot self-enroll, activate themselves, assign children or edit schedules. Trigger functions have no direct API execution grant.
-- A dormant server-side read-only adapter validates identity through Auth, requires an active stored teacher profile, and uses the caller's token with database RLS. It is not imported by any route or UI. It must remain disabled until the roster and login/provisioning design are approved.
+An existing adult account signs in with Supabase password authentication. No account creation, teacher signup, invitations, reset-email workflow, privileged Auth API or teacher provisioning is exposed. Every read verifies the caller with `/auth/v1/user`, requires a confirmed non-anonymous identity and an active stored `academy_teachers` profile matching that identity, and uses the caller's access token with RLS. A guardian account, missing profile or suspended profile cannot enter as a teacher. A separate narrow HttpOnly/SameSite=Strict cookie is scoped to `/api/teacher` (Secure on the approved HTTPS Preview alias); it never shares or changes the guardian/demo session. No refresh token is stored or returned. Expiry requires signing in again; sign-out clears only this workspace cookie.
 
-## What has not changed
+The workspace reads individual lessons using an authenticated teacher-ID filter and an inner join against active `academy_teacher_assignments`. The explicit join matters because guardian SELECT policies are additive: even a dual-role guardian/teacher must not see a revoked assignment in the teacher workspace through their guardian permissions. Results are paginated in stable start/id order, 50 at a time, with a bounded offset. Child tables are never queried by this adapter. The API strips child foreign keys and all non-allowlisted fields; no child names, emails or family details are shown.
 
-The teacher demo is still fictional and page-memory-only; its numbered identities do not correspond to database profiles. No demo rows were copied into Supabase. No teacher accounts, invitations, emails, assignments or lessons were created. Local disposable database fixtures are tests only, not a roster or proposed timetable.
+## Read-only is the schema boundary
 
-Children still do not log in. All lessons remain individual. Quran, Nur al-Bayan and Tajweed materials stay teacher-operated inside independently managed Zoom sessions. There are no meeting links, live Zoom integration, recordings, instructional material uploads or payment fields in this foundation.
+The existing tables grant authenticated users SELECT only. Lesson status supports `scheduled` and `cancelled`, but there is no client UPDATE grant, attendance field, outcome or follow-up field. Consequently the workspace displays the schedule/status only. It exposes no create, edit, cancellation, attendance, result or follow-up operation. Do not add those controls or reinterpret demo-only state as persistent data. Adding them requires a separately approved business decision and database migration.
 
-No changes are authorized to main, Production, the old Supabase project, Auth signup settings, SMTP, Vercel protection or the existing share link. No environment activation flag is set by this work.
+An authenticated account without an active teacher profile sees a clear localized message that teacher access must be assigned. An active teacher without assigned lessons sees an empty schedule, not fictitious students. `/ar/teacher-demo` and `/en/teacher-demo` remain explicitly synthetic and page-memory-only, with no connection to this API or Supabase.
+
+## Existing database foundation
+
+`db/teacher-foundation.sql` remains unchanged. `academy_teachers` links adult Auth identities and defaults to suspended. Assignments default inactive. Individual lessons have exactly one teacher and one child, an approved subject identifier, absolute start/end instants, a named time zone, and scheduled/cancelled status. Exclusion constraints prevent concurrent scheduled overlaps for either person. Forced RLS scopes profiles, assignments and lessons. Clients cannot enroll themselves, activate profiles, assign children or write schedules.
+
+No teacher roster, Auth account, invitation, assignment, lesson or fixture has been inserted in hosted Supabase by this work. All teacher fixtures are local automated tests only. Signup remains disabled. No migrations, existing family permissions, Auth settings, Vercel protection/share links, main, Production, old Supabase project, Zoom or payments are changed. Children still do not log in; no Quran/Nur al-Bayan materials are imported.
 
 ## Verification
 
-Run `npm run test:teacher:foundation` for mocked adapter tests and an isolated localhost PostgreSQL cluster. Database tests cover empty migration, RLS, no self-enrollment, teacher/guardian isolation, suspension/revocation, invalid inputs and foreign identities, overlap rejection including concurrent inserts, adjacency and cancelled lessons, inactive defaults and collision rollback. They never connect to hosted Supabase.
+`npm run test:teacher:foundation` covers adapter authorization and a disposable localhost PostgreSQL database, including guardian/teacher isolation, suspension/revocation, no client writes, overlap constraints and dual-role revoked-assignment protection. `npm run test:teacher:workspace` covers request security, bounded input, cookie isolation, mocked login/provider failures and actual GET/POST handler behavior. `npm run test:teacher:real:browser` checks localized/mobile access states and schedule rendering with local HTTP mocks only. Existing teacher demo and family/learner suites remain separate regression tests.
 
-Hosted verification is metadata/counts only: zero rows in all three new tables, forced RLS, no anonymous access and no authenticated write privileges. Existing Auth and family row counts must be unchanged. No teacher login is claimed to have been tested: there is no approved teacher account.
+Hosted checks use schema metadata/counts only plus anonymous access and the already-existing adult test account's denied teacher access. No family child details are read. A successful real teacher login is intentionally not claimed: the hosted teacher tables are empty and no teacher has been provisioned.
 
-## Stop point before activation
+## Next owner decision
 
-Ask the owner for the approved teacher list: display name, login email, taught subject(s), available days/times and time zone. Ask which approved existing child profiles are assigned to each teacher before creating any assignments or actual lessons. Confirm a Preview-only account provisioning/login approach separately; this foundation deliberately adds no teacher signup route, email invitation process, admin role or credential collection.
-
-The owner supplying a roster does not authorize Production rollout or changes to the current signup lock. Obtain explicit approval before any new account/email/provisioning step. Do not import real teacher or student records merely to demonstrate this foundation.
+Teacher access must be assigned by a separately approved privileged provisioning process. Before any account or roster is created, obtain the approved adults, account/login approach, individual assignments, subjects and timetable. The current route does not authorize provisioning, invitations, wider access or Production rollout.

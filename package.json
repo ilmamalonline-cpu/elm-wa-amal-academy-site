@@ -37,7 +37,9 @@
     "dev:family": "tsx scripts/family-review.ts --serve",
     "test:teacher": "tsx --test tests/teacher-demo-access.test.ts tests/teacher-demo-model.test.ts",
     "test:teacher:browser": "playwright test --config=playwright.teacher.config.ts",
-    "test:teacher:foundation": "tsx --test --test-concurrency=1 tests/teacher-foundation.test.ts && node --test --test-concurrency=1 tests/teacher-foundation-db.test.mjs"
+    "test:teacher:foundation": "tsx --test --test-concurrency=1 tests/teacher-foundation.test.ts && node --test --test-concurrency=1 tests/teacher-foundation-db.test.mjs",
+    "test:teacher:workspace": "NODE_OPTIONS=--conditions=react-server tsx --test --test-concurrency=1 tests/teacher-workspace.test.ts",
+    "test:teacher:real:browser": "playwright test --config=playwright.teacher-real.config.ts"
   },
   "dependencies": {
     "jose": "6.2.12",

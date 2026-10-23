@@ -102,3 +102,17 @@ test('defaults deny activity and schema reapply fails without changing existing 
   await h.admin.query('ROLLBACK');
   assert.equal((await h.admin.query(`SELECT count(*)::int AS count FROM public.academy_teachers`)).rows[0].count,3);
 });
+
+test('workspace assignment inner join blocks revoked lessons even for a dual-role guardian/teacher', async () => {
+  const uid = h.ids.guardianA;
+  await h.admin.query(`INSERT INTO public.academy_teachers(id,display_name,time_zone,status) VALUES ($1,'Local dual-role fixture','UTC','active')`, [uid]);
+  await h.admin.query(`INSERT INTO public.academy_teacher_assignments(teacher_id,child_id,status) VALUES ($1,$2,'active')`, [uid,h.ids.childA]);
+  await lesson(uid,h.ids.childA,'2032-01-01T09:00:00Z','2032-01-01T09:30:00Z');
+  const scoped = `SELECT l.id FROM public.academy_individual_lessons l INNER JOIN public.academy_teacher_assignments a ON a.teacher_id=l.teacher_id AND a.child_id=l.child_id WHERE l.teacher_id=$1 AND a.status='active' ORDER BY l.starts_at,l.id LIMIT 51 OFFSET 0`;
+  assert.equal((await h.as(uid,scoped,[uid])).rowCount,1);
+  await h.admin.query(`UPDATE public.academy_teacher_assignments SET status='inactive' WHERE teacher_id=$1 AND child_id=$2`,[uid,h.ids.childA]);
+  // The database guardian policy correctly keeps guardian reads; the separate
+  // teacher workspace must not mistake those for an active teacher assignment.
+  assert.equal((await h.as(uid,`SELECT id FROM public.academy_individual_lessons WHERE teacher_id=$1`,[uid])).rowCount,1);
+  assert.equal((await h.as(uid,scoped,[uid])).rowCount,0);
+});

@@ -5,7 +5,7 @@ import { enabled, read, TeacherFoundationError, type FetchLike } from "../src/li
 const uid = "11111111-1111-4111-8111-111111111111";
 const env = {
   VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic",
-  ACADEMY_SUPABASE_URL: "https://dyyvpcntbbwbuzskiidb.supabase.co", ACADEMY_TEACHER_ACCOUNTS: "roster-approved",
+  ACADEMY_SUPABASE_URL: "https://dyyvpcntbbwbuzskiidb.supabase.co",
   ACADEMY_SUPABASE_ANON_KEY: "sb_publishable_mock_public_test_key_only",
 };
 const teacher = { id: uid, display_name: "Teacher", time_zone: "Asia/Riyadh", secret: "must not escape" };
@@ -20,12 +20,14 @@ function mockFetch(responses: Array<Response | (() => Response)>): { fetchImpl: 
 function json(value: unknown, status = 200): Response { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } }); }
 async function errorCode(promise: Promise<unknown>, status: number, code: string) { await assert.rejects(promise, (error: unknown) => error instanceof TeacherFoundationError && error.status === status && error.code === code); }
 
- test("enabled is fail-closed and requires every preview gate plus roster-approved", () => {
+ test("enabled is fail-closed and requires every preview gate, independent of roster flags", () => {
   assert.equal(enabled(env), true);
   for (const altered of [
     { VERCEL: "0" }, { VERCEL_ENV: "production" }, { VERCEL_GIT_COMMIT_REF: "main" },
-    { ACADEMY_SUPABASE_URL: "https://other.supabase.co" }, { ACADEMY_TEACHER_ACCOUNTS: "approved-roster-required" }, { ACADEMY_TEACHER_ACCOUNTS: undefined },
+    { ACADEMY_SUPABASE_URL: "https://other.supabase.co" },
   ]) assert.equal(enabled({ ...env, ...altered }), false);
+  assert.equal(enabled({ ...env, ACADEMY_TEACHER_ACCOUNTS: "anything" }), true);
+  assert.equal(enabled({ ...env, ACADEMY_TEACHER_ACCOUNTS: undefined }), true);
 });
 
 test("public key family accepts anon/publishable and rejects secret/service keys", async () => {
@@ -43,6 +45,9 @@ test("read verifies identity, never accepts a user-supplied teacher id, and retu
   assert.match(mock.calls[1].url, new RegExp(`id=eq\\.${uid}`));
   assert.doesNotMatch(mock.calls[1].url, /attacker|teacher_id/);
   assert.match(mock.calls[2].url, /teacher_id=eq\.[^&]+/);
+  assert.match(mock.calls[2].url, /academy_teacher_assignments!inner\(status\)/);
+  assert.match(mock.calls[2].url, /academy_teacher_assignments.status=eq.active/);
+  assert.match(mock.calls[2].url, new RegExp(`teacher_id=eq\\.${uid}`));
   for (const call of mock.calls) { assert.equal(call.init?.method, "GET"); assert.equal(call.init?.cache, "no-store"); assert.equal(call.init?.redirect, "error"); assert.equal((call.init?.headers as Record<string, string>).Authorization, "Bearer access-token"); }
 });
 

@@ -1,8 +1,7 @@
 /**
- * Server-side, read-only foundation for the preview teacher roster.
- * This module deliberately has no route/UI/login integration and performs no
- * synthetic fallback. Keep it out of client bundles; no `server-only` import is
- * used so the unit tests can import it directly.
+ * Server-side read-only adapter for the protected Preview teacher workspace.
+ * No synthetic fallback. Routes import this behind a server-only boundary;
+ * direct imports here allow offline unit tests without a React runtime.
  */
 
 const PREVIEW_URL = "https://dyyvpcntbbwbuzskiidb.supabase.co";
@@ -52,13 +51,12 @@ export class TeacherFoundationError extends Error {
   }
 }
 
-/** The explicit activation flag is intentionally absent from normal deployments. */
+/** Only the approved Preview branch and separate test project may read. */
 export function enabled(env: Environment = process.env): boolean {
   return env.VERCEL === "1" &&
     env.VERCEL_ENV === "preview" &&
     env.VERCEL_GIT_COMMIT_REF === "preview/academy-synthetic" &&
-    env.ACADEMY_SUPABASE_URL === PREVIEW_URL &&
-    env.ACADEMY_TEACHER_ACCOUNTS === "roster-approved";
+    env.ACADEMY_SUPABASE_URL === PREVIEW_URL;
 }
 
 function unavailable(): never {
@@ -80,7 +78,7 @@ function publicKey(env: Environment): string {
   return key;
 }
 
-function configuration(env: Environment): { key: string } {
+export function teacherConfiguration(env: Environment): { key: string } {
   if (!enabled(env)) unavailable();
   return { key: publicKey(env) };
 }
@@ -150,7 +148,7 @@ function requestInit(token: string, key: string): RequestInit {
 /** Read the authenticated teacher profile and RLS-filtered assigned lessons. */
 export async function read(token: string, options: TeacherReadOptions = {}): Promise<TeacherFoundationResult> {
   const env = options.env ?? process.env;
-  const { key } = configuration(env);
+  const { key } = teacherConfiguration(env);
   if (typeof token !== "string" || token.length === 0 || token.length > 8192 || /[\r\n]/.test(token)) {
     throw new TeacherFoundationError(401, "authentication_required");
   }
@@ -160,7 +158,9 @@ export async function read(token: string, options: TeacherReadOptions = {}): Pro
   const base = `${PREVIEW_URL}`;
   let identity: unknown;
   try {
-    identity = await providerJson(await fetchImpl(`${base}/auth/v1/user`, init));
+    const response = await fetchImpl(`${base}/auth/v1/user`, init);
+    if (response.status === 401 || response.status === 403) throw new TeacherFoundationError(401, "authentication_required");
+    identity = await providerJson(response);
   } catch (error) {
     if (error instanceof TeacherFoundationError) throw error;
     throw new TeacherFoundationError(503, "teacher_roster_unavailable");
@@ -185,7 +185,9 @@ export async function read(token: string, options: TeacherReadOptions = {}): Pro
 
   let lessonsData: unknown;
   try {
-    lessonsData = await providerJson(await fetchImpl(`${base}/rest/v1/academy_individual_lessons?teacher_id=eq.${encodeURIComponent(uid)}&select=id,child_id,subject,starts_at,ends_at,time_zone,status&order=starts_at.asc,id.asc&limit=${PAGE_SIZE + 1}&offset=${offset}`, init));
+    // The inner join is essential: guardian SELECT policies are additive. Even
+    // a dual-role guardian/teacher must not see a revoked teacher assignment.
+    lessonsData = await providerJson(await fetchImpl(`${base}/rest/v1/academy_individual_lessons?teacher_id=eq.${encodeURIComponent(uid)}&select=id,child_id,subject,starts_at,ends_at,time_zone,status,academy_teacher_assignments!inner(status)&academy_teacher_assignments.status=eq.active&order=starts_at.asc,id.asc&limit=${PAGE_SIZE + 1}&offset=${offset}`, init));
   } catch (error) {
     if (error instanceof TeacherFoundationError) throw error;
     throw new TeacherFoundationError(503, "teacher_roster_unavailable");
