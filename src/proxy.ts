@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { locales, pageKeys } from "@/content/site";
+import { teacherDemoEnabled } from "@/lib/academy/teacher-demo-access";
 
 // Routing only: this is not authorization and never connects to a service.
 export function proxy(request: NextRequest) {
@@ -20,7 +21,7 @@ export function proxy(request: NextRequest) {
 
   const knownRoute = path === "/" || (
     (locales as readonly string[]).includes(parts[0]) &&
-    (parts.length === 1 || (parts.length === 2 && (["workspace", "family"].includes(parts[1]) || (pageKeys as readonly string[]).includes(parts[1]))))
+    (parts.length === 1 || (parts.length === 2 && (["workspace", "family"].includes(parts[1]) || (parts[1] === "teacher-demo" && teacherDemoEnabled(process.env, request.headers.get("host"))) || (pageKeys as readonly string[]).includes(parts[1]))))
   );
   if (!knownRoute) {
     // Explicit status avoids a soft-404 when a loading boundary streams early.

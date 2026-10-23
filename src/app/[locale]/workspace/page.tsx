@@ -5,7 +5,9 @@ import { isLocale } from "@/lib/routes";
 import { AcademyWorkspace } from "@/components/academy/workspace";
 import { LearnerWorkspace } from "@/components/academy/learner-workspace";
 import { familyEnabled, familySecurity } from "@/lib/academy/family-registration";
+import { teacherDemoEnabled } from "@/lib/academy/teacher-demo-access";
 import "./academy.css";
+import "./teacher-demo-entry.css";
 
 export const dynamic = "force-dynamic";
 
@@ -34,10 +36,17 @@ export default async function WorkspacePage({ params }: { params: Promise<{ loca
       enabled = true;
     } catch { enabled = false; }
   }
-  if (enabled) return <LearnerWorkspace locale={locale} />;
   // Preserve the explicitly synthetic sandbox outside the owner-family gate.
   // This fallback has no connection to authenticated family profiles.
   const browserPreview = process.env.VERCEL_ENV === "preview" ||
     (!process.env.VERCEL && process.env.ACADEMY_PREVIEW === "browser-synthetic-only");
-  return <AcademyWorkspace locale={locale} browserPreview={browserPreview} />;
+  return <>
+    {teacherDemoEnabled(process.env, incoming.get("host")) && <aside className="teacher-demo-entry">
+      <a href={`/${locale}/teacher-demo`}>
+        {locale === "ar" ? "جرّب مساحة المعلّم — بيانات اصطناعية فقط" : "Try the teacher workspace — synthetic data only"}
+      </a>
+      <span>{locale === "ar" ? "تجربة منفصلة؛ لا تستخدم حساب الأسرة أو بياناتها." : "Separate demo; does not use family accounts or records."}</span>
+    </aside>}
+    {enabled ? <LearnerWorkspace locale={locale} /> : <AcademyWorkspace locale={locale} browserPreview={browserPreview} />}
+  </>;
 }
