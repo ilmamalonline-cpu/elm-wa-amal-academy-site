@@ -36,7 +36,7 @@ export async function startHarness() {
     await rm(directory, { recursive: true, force: true });
   };
   try {
-    execFileSync(path.join(bin, 'initdb'), ['-D', data, '-L', share, '-A', 'trust', '--no-locale', '-U', 'ubuntu'], { encoding: 'utf8', timeout: 20_000 });
+    execFileSync(path.join(bin, 'initdb'), ['-D', data, '-L', share, '-A', 'trust', '--no-locale', '-E', 'UTF8', '-U', 'ubuntu'], { encoding: 'utf8', timeout: 20_000 });
     await mkdir(socket, { mode: 0o700 });
     ctl('-l', log, '-o', `-h 127.0.0.1 -p ${port} -k ${socket} -c jit=off`, '-w', 'start');
     started = true;

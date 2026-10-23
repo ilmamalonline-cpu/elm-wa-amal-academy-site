@@ -1,6 +1,6 @@
 import "server-only";
-import { read, TeacherFoundationError } from "@/lib/academy/teacher-foundation";
-import { teacherBody, teacherCookie, teacherLogin, teacherPublicData, teacherSecurity, teacherToken, TEACHER_HEADERS } from "@/lib/academy/teacher-workspace";
+import { read, updateSession, TeacherFoundationError } from "@/lib/academy/teacher-foundation";
+import { teacherBody, teacherCookie, teacherLogin, teacherPublicData, teacherPublicLesson, teacherSecurity, teacherToken, TEACHER_HEADERS } from "@/lib/academy/teacher-workspace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,9 +30,15 @@ export async function POST(request: Request) {
       response.headers.append("Set-Cookie", teacherCookie("", 0, request.headers.get("host")));
       return response;
     }
+    if (body.action === "update-session") {
+      const token = teacherToken(request);
+      if (!token) throw new TeacherFoundationError(401, "authentication_required");
+      const lesson = await updateSession(token, body);
+      return Response.json({ lesson: teacherPublicLesson(lesson) }, { headers: TEACHER_HEADERS });
+    }
     if (body.action !== "login") throw new TeacherFoundationError(400, "invalid_request");
     // Supabase Auth is the authoritative distributed password rate limiter.
-    // No user/account creation and no table mutation endpoint is exposed.
+    // No user/account creation or administrative schedule writes are exposed.
     const result = await teacherLogin(body);
     const response = Response.json(result.data, { headers: TEACHER_HEADERS });
     response.headers.append("Set-Cookie", teacherCookie(result.token, result.maxAge, request.headers.get("host")));

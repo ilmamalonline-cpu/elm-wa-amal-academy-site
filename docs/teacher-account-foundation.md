@@ -1,31 +1,46 @@
 # Protected teacher workspace — Preview only
 
-## What is connected
+## Connected access
 
-`/ar/teacher` and `/en/teacher` are the real, read-only teacher workspace. They use the existing separate Supabase Preview project `dyyvpcntbbwbuzskiidb`, only on branch `preview/academy-synthetic`. Production, other branches/projects and unapproved hosts fail closed. The pages are dynamic and noindex; the API is private/no-store.
+`/ar/teacher` and `/en/teacher` use the separate Preview Supabase project `dyyvpcntbbwbuzskiidb`, only on `preview/academy-synthetic`. Other projects, branches, Production and unapproved hosts fail closed. The routes are dynamic/noindex and the APIs private/no-store.
 
-An existing adult account signs in with Supabase password authentication. No account creation, teacher signup, invitations, reset-email workflow, privileged Auth API or teacher provisioning is exposed. Every read verifies the caller with `/auth/v1/user`, requires a confirmed non-anonymous identity and an active stored `academy_teachers` profile matching that identity, and uses the caller's access token with RLS. A guardian account, missing profile or suspended profile cannot enter as a teacher. A separate narrow HttpOnly/SameSite=Strict cookie is scoped to `/api/teacher` (Secure on the approved HTTPS Preview alias); it never shares or changes the guardian/demo session. No refresh token is stored or returned. Expiry requires signing in again; sign-out clears only this workspace cookie.
+An existing approved adult signs in using Supabase password authentication. Every operation verifies `/auth/v1/user`, rejects anonymous/unconfirmed identities, and requires an active stored teacher profile. Calls use the caller's access token and a public application key, never an administrative key. A narrow HttpOnly, SameSite=Strict cookie is scoped to `/api/teacher`, Secure on the approved HTTPS Preview alias. No refresh token is stored or returned. Expiry requires signing in again; logout changes only this cookie.
 
-The workspace reads individual lessons using an authenticated teacher-ID filter and an inner join against active `academy_teacher_assignments`. The explicit join matters because guardian SELECT policies are additive: even a dual-role guardian/teacher must not see a revoked assignment in the teacher workspace through their guardian permissions. Results are paginated in stable start/id order, 50 at a time, with a bounded offset. Child tables are never queried by this adapter. The API strips child foreign keys and all non-allowlisted fields; no child names, emails or family details are shown.
+No account creation, teacher signup, invitations, emails, reset flow, privileged Auth operation, roster, assignment or administrative schedule operation is exposed. Public signup stays closed. Children do not log in.
 
-## Read-only is the schema boundary
+## The only teacher-editable fields
 
-The existing tables grant authenticated users SELECT only. Lesson status supports `scheduled` and `cancelled`, but there is no client UPDATE grant, attendance field, outcome or follow-up field. Consequently the workspace displays the schedule/status only. It exposes no create, edit, cancellation, attendance, result or follow-up operation. Do not add those controls or reinterpret demo-only state as persistent data. Adding them requires a separately approved business decision and database migration.
+The additive `db/teacher-session-outcomes.sql` follows the unchanged foundation migration. It adds:
 
-An authenticated account without an active teacher profile sees a clear localized message that teacher access must be assigned. An active teacher without assigned lessons sees an empty schedule, not fictitious students. `/ar/teacher-demo` and `/en/teacher-demo` remain explicitly synthetic and page-memory-only, with no connection to this API or Supabase.
+- `outcome`: nullable, one of `attended_completed`, `attended_incomplete`, or `absent`. Null explicitly means no recorded outcome.
+- `follow_up_note`: non-null text, empty by default, maximum 500 Unicode characters. A nonempty note requires a recorded outcome; whitespace-only notes and control characters other than tab/newline are rejected.
 
-## Existing database foundation
+The note is explicitly shared with the child's guardian; it is not a private teacher note. Plain text rendering prevents HTML execution. No synthetic outcome is substituted for missing data.
 
-`db/teacher-foundation.sql` remains unchanged. `academy_teachers` links adult Auth identities and defaults to suspended. Assignments default inactive. Individual lessons have exactly one teacher and one child, an approved subject identifier, absolute start/end instants, a named time zone, and scheduled/cancelled status. Exclusion constraints prevent concurrent scheduled overlaps for either person. Forced RLS scopes profiles, assignments and lessons. Clients cannot enroll themselves, activate profiles, assign children or write schedules.
+Only an active teacher with an active assignment may UPDATE these two columns on their own scheduled individual session. UPDATE column grants exclude every identity/schedule field, including session/teacher/child IDs, subject, dates, time zone, scheduled/cancelled status and creation time. Mixed allowed/forbidden updates fail atomically. No client INSERT, DELETE, TRUNCATE, enrollment, activation or assignment privileges are introduced. Cancelled sessions cannot be edited. Existing assignment locking guards remain in force through a fixed-search-path, non-client-executable trigger function; clients receive no assignment UPDATE privilege.
 
-No teacher roster, Auth account, invitation, assignment, lesson or fixture has been inserted in hosted Supabase by this work. All teacher fixtures are local automated tests only. Signup remains disabled. No migrations, existing family permissions, Auth settings, Vercel protection/share links, main, Production, old Supabase project, Zoom or payments are changed. Children still do not log in; no Quran/Nur al-Bayan materials are imported.
+The teacher API uses a strict body allowlist, authenticated teacher-ID filter, session-ID filter, scheduled-status filter and database RLS. A zero-row write is denied, never reported as saved. No automatic write retries occur after an uncertain response. Reads remain bounded to 50 sessions in stable start/id order, with a maximum offset of 10,000. Explicit field projection omits child foreign keys, family details and all unapproved fields from teacher responses.
+
+## Guardian summaries, not raw session rows
+
+The old direct guardian SELECT policy on `academy_individual_lessons` is removed. Base-table rows remain readable only to the assigned active teacher. Guardians instead use `academy_guardian_session_summaries(p_child_id,p_offset)`, a deliberately narrow SECURITY DEFINER read function with fixed `pg_catalog` search path, fully qualified object references, explicit `auth.uid()` ownership checks, no dynamic SQL, bounded offset and LIMIT 51.
+
+Only authenticated callers may execute it. It returns session ID, owned child ID, subject, schedule/status, outcome and guardian-visible follow-up note, never teacher identity or creation metadata. Cross-family callers receive no rows. A teacher without ownership cannot use the summary function to read another teacher's sessions. A dual-role account keeps only the access appropriate to each interface.
+
+The guardian endpoint independently verifies the adult identity and child ownership, enforces the Preview/host/origin/CSRF boundary, and projects the permitted fields. Empty results display an empty state. Provider failures display unavailable state rather than fictitious outcomes. The real guardian workspace never obtains session outcomes from the synthetic demo.
+
+## Isolation preserved
+
+`/teacher-demo` remains synthetic and session-local, separate from real APIs and Supabase. No hosted teacher account, invitation, assignment, lesson or fixture is created. All successful teacher-edit and cross-family test fixtures live only in disposable localhost PostgreSQL or local browser mocks. The existing hosted family account and child profile are not read or changed during this step.
+
+Old Supabase `vbulxdnfknoybdkuhayz`, main, Production, Auth providers/URLs/SMTP, Vercel protection/share links, billing, payments, Zoom, materials and recordings are outside this change. The original foundation SQL remains an historical migration; applying the new outcome migration is required for the new routes.
 
 ## Verification
 
-`npm run test:teacher:foundation` covers adapter authorization and a disposable localhost PostgreSQL database, including guardian/teacher isolation, suspension/revocation, no client writes, overlap constraints and dual-role revoked-assignment protection. `npm run test:teacher:workspace` covers request security, bounded input, cookie isolation, mocked login/provider failures and actual GET/POST handler behavior. `npm run test:teacher:real:browser` checks localized/mobile access states and schedule rendering with local HTTP mocks only. Existing teacher demo and family/learner suites remain separate regression tests.
+`test:teacher:foundation` covers the original migration in isolation. `test:teacher:workspace` checks cookies, request guards and route responses. `test:teacher:outcomes` covers strict input, provider response validation, narrow writes, fail-closed deployment gates and the combined-migration disposable PostgreSQL RLS/column-privilege suite. Guardian summary tests exercise ownership, projection, unavailable/empty states and route security. Teacher and guardian browser tests cover Arabic/English, mobile, stored data, saving/failures and explicit synthetic-fixture reload behavior.
 
-Hosted checks use schema metadata/counts only plus anonymous access and the already-existing adult test account's denied teacher access. No family child details are read. A successful real teacher login is intentionally not claimed: the hosted teacher tables are empty and no teacher has been provisioned.
+Hosted verification reads schema/privilege metadata and empty teacher/session table counts only, plus unauthenticated route denials. A real successful teacher login/edit is intentionally not claimed: no approved teacher is provisioned in the hosted project.
 
-## Next owner decision
+## Next provisioning decision
 
-Teacher access must be assigned by a separately approved privileged provisioning process. Before any account or roster is created, obtain the approved adults, account/login approach, individual assignments, subjects and timetable. The current route does not authorize provisioning, invitations, wider access or Production rollout.
+A separately approved real administrative provisioning workflow must exist before adding any adult teacher, child assignment or timetable. This update does not authorize provisioning or Production rollout.

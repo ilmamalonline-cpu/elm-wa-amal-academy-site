@@ -39,7 +39,9 @@
     "test:teacher:browser": "playwright test --config=playwright.teacher.config.ts",
     "test:teacher:foundation": "tsx --test --test-concurrency=1 tests/teacher-foundation.test.ts && node --test --test-concurrency=1 tests/teacher-foundation-db.test.mjs",
     "test:teacher:workspace": "NODE_OPTIONS=--conditions=react-server tsx --test --test-concurrency=1 tests/teacher-workspace.test.ts",
-    "test:teacher:real:browser": "playwright test --config=playwright.teacher-real.config.ts"
+    "test:teacher:real:browser": "playwright test --config=playwright.teacher-real.config.ts",
+    "test:teacher:outcomes": "tsx --test --test-concurrency=1 tests/teacher-session-outcomes.test.ts && node --test --test-concurrency=1 tests/teacher-session-outcomes-db.test.mjs",
+    "test:family:summaries": "tsx --test --test-concurrency=1 tests/family-session-summaries.test.ts"
   },
   "dependencies": {
     "jose": "6.2.12",

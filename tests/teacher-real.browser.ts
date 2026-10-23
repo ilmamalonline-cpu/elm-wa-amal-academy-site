@@ -2,8 +2,8 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 const teacher = { id: "teacher-test", display_name: "Local test fixture", time_zone: "Africa/Cairo" };
-const pageOne = { id: "lesson-1", subject: "quran", starts_at: "2026-05-04T15:00:00+03:00", ends_at: "2026-05-04T16:00:00+03:00", time_zone: "Africa/Cairo", status: "scheduled" };
-const pageTwo = { id: "lesson-2", subject: "tajweed", starts_at: "2026-05-05T15:00:00+03:00", ends_at: "2026-05-05T16:00:00+03:00", time_zone: "Africa/Cairo", status: "cancelled" };
+const pageOne = { id: "lesson-1", subject: "quran", starts_at: "2026-05-04T15:00:00+03:00", ends_at: "2026-05-04T16:00:00+03:00", time_zone: "Africa/Cairo", status: "scheduled", outcome: null, follow_up_note: "" };
+const pageTwo = { id: "lesson-2", subject: "tajweed", starts_at: "2026-05-05T15:00:00+03:00", ends_at: "2026-05-05T16:00:00+03:00", time_zone: "Africa/Cairo", status: "cancelled", outcome: null, follow_up_note: "" };
 const read = (lessons = [pageOne], has_more = false, offset = 0) => ({ teacher, lessons, has_more, offset });
 
 for (const locale of ["en", "ar"] as const) {
@@ -95,7 +95,73 @@ test("real HTTP handler enforces anonymous, CSRF and write restrictions without 
   expect(anonymous.headers()["cache-control"]).toContain("no-store");
   expect((await request.get("/api/teacher")).status()).toBe(403);
   expect((await request.get("/api/teacher", { headers: { ...headers, Origin: "https://untrusted.example" } })).status()).toBe(403);
-  expect((await request.post("/api/teacher", { headers, data: { action: "update-session" } })).status()).toBe(400);
+  expect((await request.post("/api/teacher", { headers, data: { action: "update-session" } })).status()).toBe(401);
   expect((await request.patch("/api/teacher", { headers, data: { status: "cancelled" } })).status()).toBe(405);
   expect((await request.post("/api/teacher", { headers, data: { action: "logout" } })).status()).toBe(200);
 });
+
+test("local synthetic fixture: teacher can update outcome and guardian-visible note, while cancelled stays read-only", async ({ page }) => {
+  let lesson = { ...pageOne };
+  await page.route("**/api/teacher**", async route => {
+    const request = route.request();
+    if (request.method() === "POST") {
+      const body = request.postDataJSON();
+      if (body.action === "login") return route.fulfill({ json: read([lesson, pageTwo]) });
+      if (body.action === "update-session") {
+        lesson = { ...lesson, outcome: body.outcome, follow_up_note: body.follow_up_note };
+        return route.fulfill({ json: { lesson } });
+      }
+      return route.fulfill({ json: { status: "signed_out" } });
+    }
+    return route.fulfill({ json: read([lesson, pageTwo]) });
+  });
+  await page.goto("/en/teacher");
+  await page.getByRole("button", { name: "Update session", exact: true }).first().click();
+  await expect(page.getByLabel("Outcome")).toBeVisible();
+  await expect(page.getByLabel("Follow-up note visible to the guardian")).toHaveAttribute("maxlength", "1000");
+  await page.getByLabel("Outcome").selectOption("attended_completed");
+  await page.getByLabel("Follow-up note visible to the guardian").fill("<b>Local synthetic note</b>");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Session update saved");
+  expect(lesson).toMatchObject({ outcome: "attended_completed", follow_up_note: "<b>Local synthetic note</b>" });
+  await expect(page.locator(".lesson-row").first()).toContainText("Attended — completed");
+  await expect(page.locator(".lesson-row").first()).toContainText("<b>Local synthetic note</b>");
+  await expect(page.locator(".lesson-row").first().locator("b")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".lesson-row").first()).toContainText("<b>Local synthetic note</b>");
+  await expect(page.locator(".lesson-row").nth(1)).toContainText("Cancelled sessions are read-only");
+  await expect(page.locator(".lesson-row").nth(1)).toContainText("Unrecorded");
+});
+
+for (const locale of ["en", "ar"] as const) {
+  test(`${locale}: invalid empty outcome and provider failures never confirm or retain stale drafts`, async ({ page }) => {
+    let mode: "ok" | "503" | "403" = "ok";
+    let lesson = { ...pageOne };
+    await page.route("**/api/teacher**", async route => {
+      const request = route.request();
+      if (request.method() === "POST") {
+        const body = request.postDataJSON();
+        if (body.action === "login") return route.fulfill({ json: read([lesson]) });
+        if (body.action === "update-session" && mode !== "ok") return route.fulfill({ status: mode === "403" ? 403 : 503, json: { error: mode === "403" ? "session_not_available" : "teacher_roster_unavailable" } });
+        if (body.action === "update-session") { lesson = { ...lesson, outcome: body.outcome, follow_up_note: body.follow_up_note }; return route.fulfill({ json: { lesson } });
+        }
+      }
+      return route.fulfill({ json: read([lesson]) });
+    });
+    const text = (english: string, arabic: string) => locale === "en" ? english : arabic;
+    await page.goto(`/${locale}/teacher`);
+    await page.getByRole("button", { name: text("Update session", "تحديث الجلسة"), exact: true }).click();
+    await page.getByLabel(text("Follow-up note visible to the guardian", "ملاحظة متابعة مرئية لولي الأمر")).fill("   ");
+    await page.getByRole("button", { name: text("Save", "حفظ"), exact: true }).click();
+    await expect(page.locator("main.teacher-workspace").getByRole("alert")).toContainText(text("outcome or note is invalid", "النتيجة أو الملاحظة غير صالحة"));
+    mode = "503";
+    await page.getByLabel(text("Follow-up note visible to the guardian", "ملاحظة متابعة مرئية لولي الأمر")).fill("valid note");
+    await page.getByLabel(text("Outcome", "النتيجة")).selectOption("attended_completed");
+    await page.getByRole("button", { name: text("Save", "حفظ"), exact: true }).click();
+    await expect(page.getByRole("status")).toHaveCount(0);
+    mode = "403";
+    await page.getByRole("button", { name: text("Save", "حفظ"), exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(text("Teacher sign in", "دخول المعلم"));
+    await expect(page.locator("textarea")).toHaveCount(0);
+  });
+}

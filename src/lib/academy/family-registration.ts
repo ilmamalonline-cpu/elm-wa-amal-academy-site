@@ -43,19 +43,20 @@ export function familySecurity(request: Request, env: Env = process.env) {
   if (mode === "local-review") {
     let local: URL;
     try { local = new URL(`http://${host}`); } catch { throw new FamilyError("local_review_only", 403); }
-    if (!host || local.pathname !== "/" || !["localhost", "127.0.0.1", "[::1]"].includes(local.hostname) || local.host !== host || local.username || local.password)
+    if (!host || local.pathname !== "/" || !["/", "/api/family", "/api/family/session-summaries"].includes(parsed.pathname) || !["localhost", "127.0.0.1", "[::1]"].includes(local.hostname) || local.host !== host || local.username || local.password)
       throw new FamilyError("local_review_only", 403);
     const forwardedHost = request.headers.get("x-forwarded-host");
     const forwardedProto = request.headers.get("x-forwarded-proto");
     if ((forwardedHost && forwardedHost !== host) || (forwardedProto && forwardedProto !== "http")) throw new FamilyError("local_review_only", 403);
     const origin = request.headers.get("origin"); const site = request.headers.get("sec-fetch-site");
     if ((origin && origin !== local.origin) || (site && !["same-origin", "none"].includes(site))) throw new FamilyError("same_origin_required", 403);
-    if (parsed.search) throw new FamilyError("invalid_request");
+    if (parsed.pathname === "/api/family/session-summaries" && request.method !== "GET") throw new FamilyError("invalid_request");
+    if (parsed.pathname !== "/api/family/session-summaries" && parsed.search) throw new FamilyError("invalid_request");
     if (request.method !== "GET" && (origin !== local.origin || request.headers.get("x-family-registration") !== "local-review")) throw new FamilyError("csrf_required", 403);
     return;
   }
   const config = previewConfig(env)!;
-  if (!host || host !== PREVIEW_CALLBACK_HOST || parsed.protocol !== "https:" || parsed.pathname !== "/api/family" || parsed.search) throw new FamilyError("preview_host_required", 403);
+  if (!host || host !== PREVIEW_CALLBACK_HOST || parsed.protocol !== "https:" || !["/api/family", "/api/family/session-summaries"].includes(parsed.pathname)) throw new FamilyError("preview_host_required", 403);
   const forwardedHost = request.headers.get("x-forwarded-host"); const forwardedProto = request.headers.get("x-forwarded-proto");
   if ((forwardedHost && forwardedHost !== PREVIEW_CALLBACK_HOST) || (forwardedProto && forwardedProto !== "https")) throw new FamilyError("preview_host_required", 403);
   const origin = request.headers.get("origin"); const site = request.headers.get("sec-fetch-site");
@@ -192,6 +193,30 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
     if (!settings || settings.mailer_autoconfirm !== false || settings.disable_signup !== false || external?.email !== true)
       throw new FamilyError("email_confirmation_configuration_required", 503);
   }
+  async function sessionSummaries(childId: string, guardianId: string, token: string, offset = 0) {
+    if (familyMode(env) !== "owner-preview" || url !== PREVIEW_PROJECT) throw new FamilyError("registration_disabled", 503);
+    const selected = await ownedChild(childId, guardianId, token);
+    if (selected.id !== childId) throw new FamilyError("not_allowed", 403);
+    const rows = await call("/rest/v1/rpc/academy_guardian_session_summaries", "POST", { p_child_id: childId, p_offset: offset }, token) as unknown;
+    if (!Array.isArray(rows) || rows.length > 51) throw new FamilyError("provider_unavailable", 503);
+    const allowed = new Set(["id", "child_id", "subject", "starts_at", "ends_at", "time_zone", "status", "outcome", "follow_up_note"]);
+    const subjects = new Set(["quran", "nur_al_bayan", "tajweed"]);
+    const outcomes = new Set(["attended_completed", "attended_incomplete", "absent"]);
+    const statuses = new Set(["scheduled", "cancelled"]);
+    const safe = rows.map((row) => {
+      if (!row || typeof row !== "object") throw new FamilyError("provider_unavailable", 503);
+      const value = row as Record<string, unknown>;
+      const starts = typeof value.starts_at === "string" ? new Date(value.starts_at) : new Date(NaN);
+      const ends = typeof value.ends_at === "string" ? new Date(value.ends_at) : new Date(NaN);
+      const validZone = (() => { try { if (typeof value.time_zone !== "string") throw new Error(); new Intl.DateTimeFormat("en", { timeZone: value.time_zone }).format(); return true; } catch { return false; } })();
+      const note = value.follow_up_note;
+      const validNote = typeof note === "string" && [...note].length <= 500 && (note === "" || note.trim().length > 0) && ![...note].some((character) => { const code = character.codePointAt(0)!; return (code >= 0 && code <= 8) || (code >= 11 && code <= 12) || (code >= 14 && code <= 31) || (code >= 127 && code <= 159); }) && (value.outcome !== null ? true : note === "");
+      if (Object.keys(value).some((key) => !allowed.has(key)) || typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id) || value.child_id !== childId || typeof value.subject !== "string" || !subjects.has(value.subject) || !Number.isFinite(starts.getTime()) || !Number.isFinite(ends.getTime()) || starts.getTime() >= ends.getTime() || typeof value.starts_at !== "string" || typeof value.ends_at !== "string" || typeof value.time_zone !== "string" || !validZone || typeof value.status !== "string" || !statuses.has(value.status) || (value.outcome !== null && (typeof value.outcome !== "string" || !outcomes.has(value.outcome))) || !validNote) throw new FamilyError("provider_unavailable", 503);
+      return { id: value.id, child_id: childId, subject: value.subject, starts_at: value.starts_at, ends_at: value.ends_at, time_zone: value.time_zone, status: value.status, outcome: value.outcome, follow_up_note: value.follow_up_note };
+    });
+    return { summaries: safe.slice(0, 50), has_more: safe.length === 51, next_offset: safe.length === 51 ? offset + 50 : null };
+  }
+
   // Operator-only probe: GET requests only, no account creation, tokens or email.
   // A denied anonymous read does NOT prove authenticated RLS or schema correctness.
   async function readiness() {
@@ -308,5 +333,5 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
     } else throw new FamilyError("invalid_request");
     return { data: { status: "saved" } };
   }
-  return { read, act, readiness };
+  return { read, act, readiness, sessionSummaries, authenticate: user };
 }

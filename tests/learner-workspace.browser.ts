@@ -462,3 +462,57 @@ test("learning CRUD persists in the mock store, recovers ambiguous writes by rel
   await page.getByLabel("Choose a child profile").selectOption(childOne.id);
   await expect(page.getByText("Letters and words", { exact: true })).toBeVisible();
 });
+
+// Stored session fixtures are local HTTP mocks, never hosted family data.
+for (const locale of ["ar", "en"] as const) {
+  test(`${locale}: stored session summaries are scoped, plain text, and cleared on child switch`, async ({ page }) => {
+    await mockFamily(page);
+    const note = '<img src=x onerror="window.summaryInjected=true"> Local stored follow-up';
+    let release!: () => void;
+    let secondRequested = false;
+    await page.route("**/api/family/session-summaries?**", async route => {
+      const url = new URL(route.request().url());
+      expect(route.request().headers()["x-family-registration"]).toBe("local-review");
+      expect(url.searchParams.get("offset")).toBe("0");
+      const childId = url.searchParams.get("child_id");
+      if (childId === childTwo.id) {
+        secondRequested = true;
+        await new Promise<void>(resolve => { release = resolve; });
+        return route.fulfill({ json: { summaries: [], has_more: false } });
+      }
+      expect(childId).toBe(childOne.id);
+      return route.fulfill({ json: { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: childOne.id, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T10:30:00Z", time_zone: "UTC", status: "scheduled", outcome: "attended_completed", follow_up_note: note }], has_more: false } });
+    });
+    await page.goto(`/${locale}/workspace`);
+    const chooser = page.getByLabel(locale === "ar" ? "اختر ملف الطفل" : "Choose a child profile");
+    await chooser.selectOption(childOne.id);
+    const summaries = page.locator('section[aria-labelledby="session-summaries-heading"]');
+    await expect(summaries).toContainText(locale === "ar" ? "حضر وأكمل" : "Attended — completed");
+    await expect(summaries).toContainText(note);
+    await expect(summaries.locator("img")).toHaveCount(0);
+    await expect(summaries).not.toContainText(/teacher_id|Teacher A/);
+    await chooser.selectOption(childTwo.id);
+    await expect(summaries).not.toContainText(note);
+    await expect.poll(() => secondRequested).toBe(true);
+    release();
+    await expect(summaries).toContainText(locale === "ar" ? "لا توجد ملخصات جلسات محفوظة" : "No stored session summaries");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+  test(`${locale}: null outcomes stay unrecorded and provider failure is not an empty success`, async ({ page }) => {
+    await mockFamily(page);
+    let unavailable = false;
+    await page.route("**/api/family/session-summaries?**", route => unavailable
+      ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } })
+      : route.fulfill({ json: { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: childOne.id, subject: "tajweed", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T10:30:00Z", time_zone: "UTC", status: "scheduled", outcome: null, follow_up_note: "" }], has_more: false } }));
+    await page.goto(`/${locale}/workspace`);
+    const chooser = page.getByLabel(locale === "ar" ? "اختر ملف الطفل" : "Choose a child profile");
+    await chooser.selectOption(childOne.id);
+    const summaries = page.locator('section[aria-labelledby="session-summaries-heading"]');
+    await expect(summaries).toContainText(locale === "ar" ? "لم تُسجل نتيجة" : "No outcome recorded");
+    await expect(summaries).not.toContainText(locale === "ar" ? "حضر وأكمل" : "Attended — completed");
+    unavailable = true;
+    await chooser.selectOption(childTwo.id);
+    await expect(summaries).toContainText(locale === "ar" ? "غير متاحة حاليًا" : "unavailable right now");
+    await expect(summaries.locator(".learner-summary")).toHaveCount(0);
+  });
+}

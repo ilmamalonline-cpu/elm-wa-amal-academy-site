@@ -8,7 +8,7 @@ const env={VERCEL:"1",VERCEL_ENV:"preview",VERCEL_GIT_COMMIT_REF:"preview/academ
 const uid="11111111-1111-4111-8111-111111111111";
 const identity={id:uid,is_anonymous:false,email_confirmed_at:"2026-01-01T00:00:00Z"};
 const teacher={id:uid,display_name:"Teacher",time_zone:"Asia/Riyadh"};
-const lesson={id:"22222222-2222-4222-8222-222222222222",child_id:"33333333-3333-4333-8333-333333333333",subject:"quran",starts_at:"2026-01-01T10:00:00Z",ends_at:"2026-01-01T11:00:00Z",time_zone:"Asia/Riyadh",status:"scheduled"};
+const lesson={id:"22222222-2222-4222-8222-222222222222",child_id:"33333333-3333-4333-8333-333333333333",subject:"quran",starts_at:"2026-01-01T10:00:00Z",ends_at:"2026-01-01T11:00:00Z",time_zone:"Asia/Riyadh",status:"scheduled",outcome:null,follow_up_note:""};
 const json=(v:unknown,status=200)=>new Response(JSON.stringify(v),{status,headers:{"content-type":"application/json"}});
 const req=(method="GET",url=`https://${HOST}/api/teacher`,headers:Record<string,string>={})=>new Request(url,{method,headers:{host:HOST,"x-teacher-workspace":"real-preview",...headers}});
 const reject=(p:Promise<unknown>,status:number,code:string)=>assert.rejects(p,e=>e instanceof TeacherFoundationError&&e.status===status&&e.code===code);
@@ -36,7 +36,7 @@ test("body parser enforces JSON, object shape and 4 KiB limit",async()=>{
 });
 test("login verifies Auth token, identity, active profile and assignments without fallback or writes",async()=>{
  const token="T".repeat(24),m=mocked([json({access_token:token,refresh_token:"ignore",expires_in:7200}),json(identity),json([teacher]),json([lesson])]); const r=await teacherLogin({action:"login",email:"teacher@example.test",password:"x"},env,m.fetchImpl);
- assert.equal(r.token,token);assert.equal(r.maxAge,3600);assert.deepEqual(r.data.lessons[0],{id:lesson.id,subject:lesson.subject,starts_at:lesson.starts_at,ends_at:lesson.ends_at,time_zone:lesson.time_zone,status:lesson.status});assert.match(m.urls[3],/academy_teacher_assignments!inner\(status\)/);assert.match(m.urls[3],/academy_teacher_assignments.status=eq.active/);assert.ok(m.urls.every(u=>!/(signup|refresh|insert|update|delete|rpc)/.test(u)));
+ assert.equal(r.token,token);assert.equal(r.maxAge,3600);assert.deepEqual(r.data.lessons[0],{id:lesson.id,subject:lesson.subject,starts_at:lesson.starts_at,ends_at:lesson.ends_at,time_zone:lesson.time_zone,status:lesson.status,outcome:lesson.outcome,follow_up_note:lesson.follow_up_note});assert.match(m.urls[3],/academy_teacher_assignments!inner\(status\)/);assert.match(m.urls[3],/academy_teacher_assignments.status=eq.active/);assert.ok(m.urls.every(u=>!/(signup|refresh|insert|update|delete|rpc)/.test(u)));
 });
 test("login rejects extra role/teacher_id, anonymous/unconfirmed/wrong identity, missing/suspended profile and provider errors",async()=>{
  for(const b of [{action:"login",email:"a@b.test",password:"x",role:"teacher"},{action:"login",email:"a@b.test",password:"x",teacher_id:uid},{action:"signup",email:"a@b.test",password:"x"}])await reject(teacherLogin(b,env,mocked([]).fetchImpl),400,"invalid_credentials");
@@ -44,7 +44,7 @@ test("login rejects extra role/teacher_id, anonymous/unconfirmed/wrong identity,
  await reject(teacherLogin({action:"login",email:"a@b.test",password:"x"},env,mocked([json({access_token:"T".repeat(20),expires_in:60}),json(identity),json([])]).fetchImpl),403,"teacher_profile_required");
  for(const r of [new Response("x",{status:401}),new Response("x",{status:500}),new Response("bad")])await reject(teacherLogin({action:"login",email:"a@b.test",password:"x"},env,mocked([r]).fetchImpl),r.status===401?401:503,r.status===401?"authentication_required":"teacher_roster_unavailable");
 });
-test("public data strips child_id and private fields",()=>{const r=teacherPublicData({teacher,lessons:[{...lesson,private_note:"x"} as never],has_more:true,offset:0});assert.equal("child_id" in r.lessons[0],false);assert.deepEqual(r.lessons[0],{id:lesson.id,subject:lesson.subject,starts_at:lesson.starts_at,ends_at:lesson.ends_at,time_zone:lesson.time_zone,status:lesson.status});});
+test("public data strips child_id and private fields",()=>{const r=teacherPublicData({teacher,lessons:[{...lesson,private_note:"x"} as never],has_more:true,offset:0});assert.equal("child_id" in r.lessons[0],false);assert.deepEqual(r.lessons[0],{id:lesson.id,subject:lesson.subject,starts_at:lesson.starts_at,ends_at:lesson.ends_at,time_zone:lesson.time_zone,status:lesson.status,outcome:lesson.outcome,follow_up_note:lesson.follow_up_note});});
 function routeReq(method:string,body?:unknown,headers:Record<string,string>={}){return new Request(`https://${HOST}/api/teacher`,{method,headers:{host:HOST,"x-teacher-workspace":"real-preview",...(method==="POST"?{origin:`https://${HOST}`,"content-type":"application/json"}:{}),...headers},body:body===undefined?undefined:JSON.stringify(body)});}
 async function routeEnv(fetchImpl:typeof fetch,fn:()=>Promise<void>){const old={...process.env},of=globalThis.fetch;Object.assign(process.env,env);globalThis.fetch=fetchImpl;try{await fn()}finally{for(const k of Object.keys(process.env))if(!(k in old))delete process.env[k];Object.assign(process.env,old);globalThis.fetch=of}}
 test("direct route GET/POST emits safe responses and cookie behavior",async()=>{
@@ -68,11 +68,23 @@ test("route active teacher login returns only public fields and unsupported acti
   const ok=await route.POST(routeReq("POST",{action:"login",email:"teacher@example.test",password:"local-test-only"}));
   assert.equal(ok.status,200);assert.match(ok.headers.get("set-cookie")!,/HttpOnly; SameSite=Strict; Secure;/);
   const text=await ok.text();assert.doesNotMatch(text,/child_id|refresh_token|access_token|never expose/);assert.match(ok.headers.get("cache-control")!,/no-store/);
-  for(const action of ["signup","update-session","attendance","follow-up","invite"]){const denied=await route.POST(routeReq("POST",{action}));assert.equal(denied.status,400)}
+  for(const action of ["signup","attendance","follow-up","invite"]){const denied=await route.POST(routeReq("POST",{action}));assert.equal(denied.status,400)}
   assert.equal(m.urls.length,4);
  });
  const revoked=mocked([json(identity),json([])]);
  await routeEnv(revoked.fetchImpl,async()=>{const denied=await route.GET(routeReq("GET",undefined,{cookie:`${TEACHER_COOKIE}=${token}`}));assert.equal(denied.status,403);assert.match(denied.headers.get("set-cookie")!,/Max-Age=0/);assert.equal(revoked.urls.length,2)});
  const expired=mocked([json({error:"expired"},401)]);
  await routeEnv(expired.fetchImpl,async()=>{const denied=await route.GET(routeReq("GET",undefined,{cookie:`${TEACHER_COOKIE}=${token}`}));assert.equal(denied.status,401);assert.match(denied.headers.get("set-cookie")!,/Max-Age=0/)});
+});
+
+test("real POST outcome route refuses anonymous and forbidden fields and strips private response keys",async()=>{
+ const token="T".repeat(24),update={action:"update-session",id:lesson.id,outcome:"absent",follow_up_note:"Practice tomorrow."};
+ const m=mocked([json(identity),json([teacher]),json([{...lesson,outcome:update.outcome,follow_up_note:update.follow_up_note,private_note:"never expose"}])]);
+ await routeEnv(m.fetchImpl,async()=>{
+  const anonymous=await route.POST(routeReq("POST",update));assert.equal(anonymous.status,401);assert.equal(m.urls.length,0);
+  const forbidden=await route.POST(routeReq("POST",{...update,status:"cancelled"},{cookie:`${TEACHER_COOKIE}=${token}`}));assert.equal(forbidden.status,400);assert.equal(m.urls.length,0);
+  const saved=await route.POST(routeReq("POST",update,{cookie:`${TEACHER_COOKIE}=${token}`}));assert.equal(saved.status,200);const data=await saved.json();assert.equal(data.lesson.outcome,"absent");assert.equal(data.lesson.follow_up_note,update.follow_up_note);assert.equal("child_id" in data.lesson,false);assert.equal("private_note" in data.lesson,false);assert.match(saved.headers.get("cache-control")!,/no-store/);assert.equal(m.urls.length,3);
+ });
+ const revoked=mocked([json(identity),json([teacher]),json([])]);
+ await routeEnv(revoked.fetchImpl,async()=>{const result=await route.POST(routeReq("POST",update,{cookie:`${TEACHER_COOKIE}=${token}`}));assert.equal(result.status,403);assert.deepEqual(await result.json(),{error:"session_not_available"});});
 });

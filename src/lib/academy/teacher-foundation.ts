@@ -1,5 +1,5 @@
 /**
- * Server-side read-only adapter for the protected Preview teacher workspace.
+ * Server-side restricted adapter for the protected Preview teacher workspace.
  * No synthetic fallback. Routes import this behind a server-only boundary;
  * direct imports here allow offline unit tests without a React runtime.
  */
@@ -29,6 +29,8 @@ export type TeacherLesson = {
   ends_at: string;
   time_zone: string;
   status: "scheduled" | "cancelled";
+  outcome: SessionOutcome;
+  follow_up_note: string;
 };
 
 export type TeacherFoundationResult = {
@@ -116,6 +118,13 @@ function validateTeacher(value: unknown, uid: string): Teacher {
   return { id: uid, display_name: row.display_name, time_zone: row.time_zone };
 }
 
+export type SessionOutcome = "attended_completed" | "attended_incomplete" | "absent" | null;
+export function validOutcomeFields(outcome: unknown, note: unknown): boolean {
+  return (outcome === null || ["attended_completed", "attended_incomplete", "absent"].includes(outcome as string)) &&
+    typeof note === "string" && [...note].length <= 500 &&
+    ![...note].some(c => { const n = c.codePointAt(0)!; return (n < 32 && n !== 9 && n !== 10) || (n >= 127 && n <= 159); }) &&
+    (note === "" || note.trim().length > 0) && (outcome !== null || note === "");
+}
 function validateLesson(value: unknown): TeacherLesson {
   if (!value || typeof value !== "object" || Array.isArray(value)) providerFailure();
   const row = value as Record<string, unknown>;
@@ -123,7 +132,7 @@ function validateLesson(value: unknown): TeacherLesson {
       !timeZone(row.time_zone) || typeof row.starts_at !== "string" || typeof row.ends_at !== "string" ||
       !ISO_DATE.test(row.starts_at) || !ISO_DATE.test(row.ends_at) ||
       !Number.isFinite(Date.parse(row.starts_at)) || !Number.isFinite(Date.parse(row.ends_at)) ||
-      Date.parse(row.ends_at) <= Date.parse(row.starts_at) || typeof row.status !== "string" || !LESSON_STATUSES.has(row.status)) providerFailure();
+      Date.parse(row.ends_at) <= Date.parse(row.starts_at) || typeof row.status !== "string" || !LESSON_STATUSES.has(row.status) || !validOutcomeFields(row.outcome, row.follow_up_note)) providerFailure();
   return {
     id: row.id,
     child_id: row.child_id,
@@ -132,6 +141,8 @@ function validateLesson(value: unknown): TeacherLesson {
     ends_at: row.ends_at,
     time_zone: row.time_zone,
     status: row.status as TeacherLesson["status"],
+    outcome: row.outcome as SessionOutcome,
+    follow_up_note: row.follow_up_note as string,
   };
 }
 
@@ -146,13 +157,12 @@ function requestInit(token: string, key: string): RequestInit {
 }
 
 /** Read the authenticated teacher profile and RLS-filtered assigned lessons. */
-export async function read(token: string, options: TeacherReadOptions = {}): Promise<TeacherFoundationResult> {
+async function authenticatedTeacher(token: string, options: TeacherReadOptions = {}) {
   const env = options.env ?? process.env;
   const { key } = teacherConfiguration(env);
   if (typeof token !== "string" || token.length === 0 || token.length > 8192 || /[\r\n]/.test(token)) {
     throw new TeacherFoundationError(401, "authentication_required");
   }
-  const offset = offsetValue(options.offset);
   const fetchImpl = options.fetchImpl ?? fetch;
   const init = requestInit(token, key);
   const base = `${PREVIEW_URL}`;
@@ -182,12 +192,18 @@ export async function read(token: string, options: TeacherReadOptions = {}): Pro
   if (!Array.isArray(profileData) || profileData.length === 0) throw new TeacherFoundationError(403, "teacher_profile_required");
   if (profileData.length !== 1) providerFailure();
   const teacher = validateTeacher(profileData[0], uid);
+  return { teacher, uid, init, base, fetchImpl };
+}
 
+/** Read only assigned sessions, without synthetic fallback. */
+export async function read(token: string, options: TeacherReadOptions = {}): Promise<TeacherFoundationResult> {
+  const offset = offsetValue(options.offset);
+  const { teacher, uid, init, base, fetchImpl } = await authenticatedTeacher(token, options);
   let lessonsData: unknown;
   try {
-    // The inner join is essential: guardian SELECT policies are additive. Even
-    // a dual-role guardian/teacher must not see a revoked teacher assignment.
-    lessonsData = await providerJson(await fetchImpl(`${base}/rest/v1/academy_individual_lessons?teacher_id=eq.${encodeURIComponent(uid)}&select=id,child_id,subject,starts_at,ends_at,time_zone,status,academy_teacher_assignments!inner(status)&academy_teacher_assignments.status=eq.active&order=starts_at.asc,id.asc&limit=${PAGE_SIZE + 1}&offset=${offset}`, init));
+    // Keep the explicit assignment join as defense in depth, including for
+    // dual-role identities and future policy changes. No revoked assignment.
+    lessonsData = await providerJson(await fetchImpl(`${base}/rest/v1/academy_individual_lessons?teacher_id=eq.${encodeURIComponent(uid)}&select=id,child_id,subject,starts_at,ends_at,time_zone,status,outcome,follow_up_note,academy_teacher_assignments!inner(status)&academy_teacher_assignments.status=eq.active&order=starts_at.asc,id.asc&limit=${PAGE_SIZE + 1}&offset=${offset}`, init));
   } catch (error) {
     if (error instanceof TeacherFoundationError) throw error;
     throw new TeacherFoundationError(503, "teacher_roster_unavailable");
@@ -199,3 +215,29 @@ export async function read(token: string, options: TeacherReadOptions = {}): Pro
 }
 
 export const TEACHER_FOUNDATION_CONFIG = { previewUrl: PREVIEW_URL, pageSize: PAGE_SIZE, maxOffset: MAX_OFFSET } as const;
+
+/** Strict body allowlist plus database column privileges and UPDATE RLS. */
+export async function updateSession(token: string, body: Record<string, unknown>, options: TeacherReadOptions = {}): Promise<TeacherLesson> {
+  if (Object.keys(body).sort().join(",") !== "action,follow_up_note,id,outcome" || body.action !== "update-session" ||
+      typeof body.id !== "string" || !UUID.test(body.id) || !validOutcomeFields(body.outcome, body.follow_up_note)) {
+    throw new TeacherFoundationError(400, "invalid_session_outcome");
+  }
+  const { uid, init, base, fetchImpl } = await authenticatedTeacher(token, options);
+  let response: Response;
+  try {
+    response = await fetchImpl(`${base}/rest/v1/academy_individual_lessons?id=eq.${body.id}&teacher_id=eq.${uid}&status=eq.scheduled&select=id,child_id,subject,starts_at,ends_at,time_zone,status,outcome,follow_up_note`, {
+      ...init, method: "PATCH", headers: { ...init.headers, "Content-Type": "application/json", Prefer: "return=representation" },
+      body: JSON.stringify({ outcome: body.outcome, follow_up_note: body.follow_up_note }),
+    });
+  } catch { return providerFailure(); }
+  if (response.status === 401) throw new TeacherFoundationError(401, "authentication_required");
+  if (response.status === 403) throw new TeacherFoundationError(403, "session_not_available");
+  if (response.status === 400 || response.status === 409) throw new TeacherFoundationError(400, "invalid_session_outcome");
+  const rows = await providerJson(response);
+  if (!Array.isArray(rows)) return providerFailure();
+  if (rows.length === 0) throw new TeacherFoundationError(403, "session_not_available");
+  if (rows.length !== 1) return providerFailure();
+  const lesson = validateLesson(rows[0]);
+  if (lesson.id !== body.id || lesson.status !== "scheduled" || lesson.outcome !== body.outcome || lesson.follow_up_note !== body.follow_up_note) return providerFailure();
+  return lesson;
+}

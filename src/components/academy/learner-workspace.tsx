@@ -13,6 +13,7 @@ type Family = {
   children: Child[];
 };
 type Lesson = { id: string; title: string; description: string };
+type SessionSummary = { id: string; child_id: string; subject: string; starts_at: string; ends_at: string; time_zone: string; status: string; outcome: "attended_completed" | "attended_incomplete" | "absent" | null; follow_up_note: string };
 type Workspace = {
   child: { id: string; display_name: string };
   locale: Locale;
@@ -72,6 +73,7 @@ export function LearnerWorkspace({ locale }: { locale: Locale }) {
     [error, setError] = useState(""),
     [actionError, setActionError] = useState(""),
     [loggedOut, setLoggedOut] = useState(false);
+  const [summaries, setSummaries] = useState<SessionSummary[]>([]), [summaryState, setSummaryState] = useState<"idle" | "loading" | "ready" | "unavailable">("idle"), [summaryHasMore, setSummaryHasMore] = useState(false);
   const [goal, setGoal] = useState(""),
     [weekly, setWeekly] = useState(""),
     [planEditing, setPlanEditing] = useState(false),
@@ -112,6 +114,8 @@ export function LearnerWorkspace({ locale }: { locale: Locale }) {
   const clearPrivate = useCallback(() => {
     controller.current?.abort();
     setWorkspace(null);
+    setSummaries([]);
+    setSummaryState("idle");
     setSelectedId("");
     setBusy(false);
     resetForms();
@@ -173,6 +177,9 @@ export function LearnerWorkspace({ locale }: { locale: Locale }) {
     controller.current = next;
     setSelectedId(id);
     setWorkspace(null);
+    setSummaries([]);
+    setSummaryState("idle");
+    setSummaryHasMore(false);
     resetForms();
     setError("");
     if (!id) {
@@ -200,9 +207,17 @@ export function LearnerWorkspace({ locale }: { locale: Locale }) {
         setWorkspace(data as Workspace);
         const learning = (data as Workspace).learning;
         setGoal(learning?.plan?.goal || "");
-        setWeekly(
-          learning?.plan ? String(learning.plan.weekly_target_minutes) : "",
-        );
+        setWeekly(learning?.plan ? String(learning.plan.weekly_target_minutes) : "");
+        setSummaryState("loading");
+        try {
+          const summaryResponse = await fetch(`/api/family/session-summaries?child_id=${encodeURIComponent(id)}&offset=0`, { cache: "no-store", credentials: "same-origin", signal: next.signal, headers: { "X-Family-Registration": "local-review" } });
+          const summaryData = await summaryResponse.json().catch(() => ({}));
+          if (!summaryResponse.ok) throw new Error(summaryData.error || "unavailable");
+          if (sequence === requestSequence.current) { setSummaries(Array.isArray(summaryData.summaries) ? summaryData.summaries : []); setSummaryHasMore(summaryData.has_more === true); setSummaryState("ready"); }
+        } catch {
+          if (next.signal.aborted) return;
+          if (sequence === requestSequence.current) { setSummaries([]); setSummaryState("unavailable"); }
+        }
       }
     } catch (cause) {
       if (next.signal.aborted || sequence !== requestSequence.current) return;
@@ -495,6 +510,14 @@ export function LearnerWorkspace({ locale }: { locale: Locale }) {
                 )}
               </p>
             </div>
+            <section className="learner-card" aria-labelledby="session-summaries-heading">
+              <h2 id="session-summaries-heading">{t("ملخص الجلسات الفردية", "Individual session summaries")}</h2>
+              {summaryState === "loading" && <p className="learner-muted" role="status">{t("جارٍ تحميل الملخصات المحفوظة…", "Loading stored summaries…")}</p>}
+              {summaryState === "unavailable" && <p className="learner-muted" role="status">{t("ملخصات الجلسات غير متاحة حاليًا.", "Session summaries are unavailable right now.")}</p>}
+              {summaryState === "ready" && summaries.length === 0 && <p className="learner-muted">{t("لا توجد ملخصات جلسات محفوظة لهذا الطفل.", "No stored session summaries for this child.")}</p>}
+              {summaryState === "ready" && summaries.length > 0 && <div className="learner-summary-list">{summaries.map((summary) => <article className="learner-summary" key={summary.id}><h3>{summary.subject === "quran" ? t("القرآن", "Quran") : summary.subject === "nur_al_bayan" ? t("نور البيان", "Nur Al-Bayan") : t("التجويد", "Tajweed")}</h3><p>{new Date(summary.starts_at).toLocaleString(en ? "en" : "ar", { dateStyle: "medium", timeStyle: "short", timeZone: summary.time_zone })}</p><p><strong>{t("الحالة: ", "Schedule: ")}</strong>{summary.status === "cancelled" ? t("ملغاة", "Cancelled") : t("مجدولة", "Scheduled")}</p><p><strong>{t("النتيجة: ", "Outcome: ")}</strong>{summary.outcome === "attended_completed" ? t("حضر وأكمل", "Attended — completed") : summary.outcome === "attended_incomplete" ? t("حضر ولم يكمل", "Attended — incomplete") : summary.outcome === "absent" ? t("غائب", "Absent") : t("لم تُسجل نتيجة", "No outcome recorded")}</p>{summary.follow_up_note && <p><strong>{t("ملاحظة المتابعة: ", "Follow-up note: ")}</strong>{summary.follow_up_note}</p>}</article>)}</div>}
+              {summaryState === "ready" && summaryHasMore && <p className="learner-muted">{t("تُعرض أحدث 50 ملخصًا فقط.", "Showing the first 50 summaries only.")}</p>}
+            </section>
             <div className="learner-lessons">
               <h2>{t("أمثلة الدروس", "Example lessons")}</h2>
               {workspace.lessons.map((lesson) => (
