@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Locale } from "@/content/site";
+import { teacherProfilePendingCopy } from "@/lib/academy/teacher-workspace-copy";
 import "./teacher-workspace.css";
 
 type Teacher = { id: string; display_name: string; time_zone: string };
@@ -14,7 +15,7 @@ type ApiError = { error?: string; lesson?: Lesson };
 const PAGE_SIZE = 50;
 const labels = {
   authentication_required: ["تسجيل الدخول مطلوب.", "Sign in is required."],
-  teacher_profile_required: ["يجب تعيين صلاحية المعلم لهذا الحساب. حسابات أولياء الأمور والحسابات غير المعيّنة لا تملك وصول المعلم.", "Teacher access must be assigned to this account. Guardian and unassigned accounts cannot use the teacher workspace."],
+  teacher_profile_required: [teacherProfilePendingCopy.ar, teacherProfilePendingCopy.en],
   teacher_roster_unavailable: ["تعذر تحميل سجل المعلم مؤقتًا. حاول مرة أخرى.", "The teacher roster is temporarily unavailable. Try again."],
   network: ["تعذر الاتصال. حاول مرة أخرى.", "The service could not be reached. Try again."],
   save_failed: ["تعذر حفظ تحديث الجلسة. لم يتم تأكيد الحفظ.", "The session update could not be saved. It was not confirmed."],
@@ -34,6 +35,7 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [activationPending, setActivationPending] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [draftOutcome, setDraftOutcome] = useState<Outcome | "">("");
   const [draftNote, setDraftNote] = useState("");
@@ -62,14 +64,16 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
   const load = useCallback(async (nextOffset = 0) => {
     setLoading(true);
     setError("");
+    setActivationPending(false);
     try {
       const { response, body } = await request({ method: "GET" }, nextOffset ? `?offset=${nextOffset}` : "");
       if (!response.ok) throw new Error(body.error || "network");
       setData(body as ReadData);
       setOffset(nextOffset);
     } catch (cause) {
+      const code = cause instanceof Error ? cause.message : "network";
       setData(null); resetEditor();
-      setError(messageFor(cause instanceof Error ? cause.message : "network"));
+      setError(messageFor(code)); setActivationPending(code === "teacher_profile_required");
     } finally { setLoading(false); }
   }, [messageFor, request, resetEditor]);
 
@@ -77,12 +81,18 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
 
   const submitLogin = async (event: FormEvent) => {
     event.preventDefault();
-    setBusy(true); setLoginError("");
+    setBusy(true); setLoginError(""); setActivationPending(false);
     try {
       const { response, body } = await request({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "login", email: email.trim(), password }) });
       if (!response.ok) throw new Error(body.error || "network");
-      setPassword(""); setData(body as ReadData); setOffset(0); setError(""); resetEditor();
-    } catch (cause) { resetEditor(); setLoginError(messageFor(cause instanceof Error ? cause.message : "network")); }
+      setPassword(""); setData(body as ReadData); setOffset(0); setError(""); setActivationPending(false); resetEditor();
+    } catch (cause) {
+      resetEditor();
+      const code = cause instanceof Error ? cause.message : "network";
+      if (code === "teacher_profile_required") setEmail("");
+      setActivationPending(code === "teacher_profile_required");
+      setLoginError(messageFor(code));
+    }
     finally { setPassword(""); setBusy(false); }
   };
 
@@ -91,7 +101,7 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
     try {
       const { response, body } = await request({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "logout" }) });
       if (!response.ok) throw new Error(body.error || "network");
-      setData(null); setOffset(0); setError(""); setLoginError(""); resetEditor();
+      setData(null); setOffset(0); setError(""); setLoginError(""); setActivationPending(false); resetEditor();
     } catch (cause) { resetEditor(); setError(messageFor(cause instanceof Error ? cause.message : "network")); }
     finally { setBusy(false); }
   };
@@ -118,7 +128,10 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
       if (!body.lesson || body.lesson.id !== lesson.id) throw new Error("session_not_available");
       setData(current => current ? { ...current, lessons: current.lessons.map(item => item.id === body.lesson!.id ? body.lesson! : item) } : current);
       setEditing(null); setDraftOutcome(""); setDraftNote(""); setSaveMessage(en ? "Session update saved." : "تم حفظ تحديث الجلسة.");
-    } catch (cause) { setError(messageFor(cause instanceof Error ? cause.message : "save_failed")); }
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : "save_failed";
+      setError(messageFor(code)); setActivationPending(code === "teacher_profile_required");
+    }
     finally { setBusy(false); }
   };
 
@@ -127,8 +140,11 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
     try {
       const { response, body } = await request({ method: "GET" }, next ? `?offset=${next}` : "");
       if (!response.ok) throw new Error(body.error || "network");
-      setData(body as ReadData); setOffset(next); setError(""); resetEditor();
-    } catch (cause) { setData(null); resetEditor(); setError(messageFor(cause instanceof Error ? cause.message : "network")); }
+      setData(body as ReadData); setOffset(next); setError(""); setActivationPending(false); resetEditor();
+    } catch (cause) {
+      const code = cause instanceof Error ? cause.message : "network";
+      setData(null); resetEditor(); setError(messageFor(code)); setActivationPending(code === "teacher_profile_required");
+    }
     finally { setBusy(false); }
   };
 
@@ -137,7 +153,7 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
   const subject = (value: string) => ({ quran: t("القرآن الكريم", "Quran"), nur_al_bayan: t("نور البيان", "Nur Al-Bayan"), tajweed: t("التجويد", "Tajweed") }[value] ?? value);
   const status = (value: string) => value === "cancelled" ? t("ملغاة", "Cancelled") : t("مجدولة", "Scheduled");
   const outcome = (value: Outcome | null) => value === "attended_completed" ? t("حضر وأكمل", "Attended — completed") : value === "attended_incomplete" ? t("حضر ولم يكمل", "Attended — incomplete") : value === "absent" ? t("غائب", "Absent") : t("غير مسجلة", "Unrecorded");
-  const title = data ? t("مساحة المعلم", "Teacher workspace") : t("دخول المعلم", "Teacher sign in");
+  const title = data ? t("مساحة المعلم", "Teacher workspace") : activationPending ? t("تفعيل الوصول إلى مساحة المعلم", "Teacher workspace access pending") : t("دخول المعلم", "Teacher sign in");
   const pageLabel = useMemo(() => offset / PAGE_SIZE + 1, [offset]);
 
   return <main className="teacher-workspace" dir={en ? "ltr" : "rtl"}>
@@ -148,7 +164,14 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
       </header>
 
       {loading && <p className="workspace-status" role="status">{t("جارٍ تحميل المساحة…", "Loading workspace…")}</p>}
-      {!loading && !data && <section className="teacher-auth card" aria-labelledby="teacher-login-title">
+      {!loading && !data && activationPending && <section className="teacher-auth card activation-pending" aria-labelledby="teacher-activation-title">
+        <p className="section-kicker">01 / {t("حالة الوصول", "ACCESS STATUS")}</p>
+        <h2 id="teacher-activation-title">{t("يلزم تفعيل الوصول إلى مساحة المعلم", "Teacher workspace access needs activation")}</h2>
+        <p className="activation-message" role="status">{messageFor("teacher_profile_required")}</p>
+        <button className="secondary-button" type="button" onClick={() => { setError(""); setLoginError(""); setActivationPending(false); }}>{t("العودة إلى تسجيل الدخول", "Return to sign in")}</button>
+      </section>}
+
+      {!loading && !data && !activationPending && <section className="teacher-auth card" aria-labelledby="teacher-login-title">
         <p className="section-kicker">01 / {t("دخول آمن", "SECURE SIGN IN")}</p><h2 id="teacher-login-title">{t("سجّل الدخول بحساب المعلم المعتمد", "Sign in with an approved teacher account")}</h2><p className="muted">{t("هذه المساحة للمعلمين البالغين المعيّنين فقط. لا يوجد تسجيل جديد أو إعادة تعيين أو دعوة.", "For existing approved adult teachers only. There is no sign-up, reset, or invite flow.")}</p>
         {error && <p className="alert" role="alert">{error}</p>}{loginError && <p className="alert" role="alert">{loginError}</p>}
         <form onSubmit={submitLogin}><label>{t("البريد الإلكتروني", "Email")}<input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required /></label><label>{t("كلمة المرور", "Password")}<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label><button className="primary-button" type="submit" disabled={busy}>{busy ? t("جارٍ التحقق…", "Checking…") : t("تسجيل الدخول", "Sign in")}</button></form>

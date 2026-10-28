@@ -41,13 +41,32 @@ for (const locale of ["en", "ar"] as const) {
   });
 }
 
-test("real teacher route renders explicit access errors and never links demo", async ({ page }) => {
-  await page.route("**/api/teacher**", route => route.fulfill({ status: 403, json: { error: "teacher_profile_required" } }));
-  await page.goto("/en/teacher");
-  await expect(page.locator("main.teacher-workspace").getByRole("alert")).toContainText("Teacher access must be assigned");
-  await expect(page.getByText(/demo/i)).toHaveCount(0);
-  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
-});
+for (const locale of ["ar", "en"] as const) {
+  test(`${locale}: authenticated account without teacher activation gets a clear, accessible next step`, async ({ page }) => {
+    await page.route("**/api/teacher**", route => route.fulfill(route.request().method() === "POST"
+      ? { status: 403, json: { error: "teacher_profile_required" } }
+      : { status: 401, json: { error: "authentication_required" } }));
+    await page.goto(`/${locale}/teacher`);
+    const en = locale === "en";
+    const text = (english: string, arabic: string) => en ? english : arabic;
+    await page.getByLabel(text("Email", "البريد الإلكتروني")).fill("teacher.synthetic@example.test");
+    await page.getByLabel(text("Password", "كلمة المرور")).fill("synthetic-password-only");
+    await page.getByRole("button", { name: text("Sign in", "تسجيل الدخول"), exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(text("Teacher workspace access pending", "تفعيل الوصول إلى مساحة المعلم"));
+    await expect(page.getByRole("heading", { name: text("Teacher workspace access needs activation", "يلزم تفعيل الوصول إلى مساحة المعلم") })).toBeVisible();
+    await expect(page.locator("main.teacher-workspace").getByRole("status")).toContainText(text("Your sign-in was accepted", "تم التحقق من بيانات الدخول"));
+    await expect(page.locator("main.teacher-workspace").getByRole("status")).toContainText(text("contact the academy administrator", "تواصل مع مسؤول الأكاديمية"));
+    await expect(page.getByRole("textbox")).toHaveCount(0);
+    await expect(page.locator("input[type=password]")).toHaveCount(0);
+    await expect(page.getByText(/demo/i)).toHaveCount(0);
+    await expect(page.locator("main.teacher-workspace").getByText(/academy_teachers|academy_teacher_assignments|teacher_profile_required/i)).toHaveCount(0);
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+    expect(await new AxeBuilder({ page }).include(".teacher-workspace").analyze()).toHaveProperty("violations", []);
+    await page.getByRole("button", { name: text("Return to sign in", "العودة إلى تسجيل الدخول"), exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(text("Teacher sign in", "دخول المعلم"));
+    await expect(page.getByLabel(text("Password", "كلمة المرور"))).toHaveValue("");
+  });
+}
 
 test("real teacher page remains separate from the synthetic demo", async ({ page }) => {
   await page.goto("/en/teacher-demo");
@@ -72,16 +91,16 @@ for (const locale of ["ar", "en"] as const) {
     await expect(page.locator(".lesson-row")).toHaveCount(1);
     await page.getByRole("button", { name: locale === "ar" ? "التالي" : "Next", exact: true }).click();
     await expect(page.locator(".lesson-row")).toHaveCount(0);
-    await expect(page.locator("main.teacher-workspace").getByRole("alert")).toContainText(locale === "ar" ? "يجب تعيين صلاحية المعلم" : "Teacher access must be assigned");
+    await expect(page.locator("main.teacher-workspace").getByRole("status")).toContainText(locale === "ar" ? "تم التحقق من بيانات الدخول" : "Your sign-in was accepted");
   });
   test(`${locale}: unavailable provider and denied login remain safe and clear password`, async ({ page }) => {
-    await page.route("**/api/teacher**", route => route.fulfill({ status: route.request().method() === "POST" ? 403 : 503, json: { error: route.request().method() === "POST" ? "teacher_profile_required" : "teacher_roster_unavailable" } }));
+    await page.route("**/api/teacher**", route => route.fulfill({ status: route.request().method() === "POST" ? 401 : 503, json: { error: route.request().method() === "POST" ? "authentication_required" : "teacher_roster_unavailable" } }));
     await page.goto(`/${locale}/teacher`);
     await expect(page.locator("main.teacher-workspace").getByRole("alert")).toContainText(locale === "ar" ? "تعذر تحميل سجل المعلم" : "temporarily unavailable");
     await page.getByLabel(locale === "ar" ? "البريد الإلكتروني" : "Email").fill("guardian@example.test");
     await page.getByLabel(locale === "ar" ? "كلمة المرور" : "Password").fill("local-test-only");
     await page.getByRole("button", { name: locale === "ar" ? "تسجيل الدخول" : "Sign in", exact: true }).click();
-    await expect(page.getByText(locale === "ar" ? /يجب تعيين صلاحية المعلم/ : /Teacher access must be assigned/)).toBeVisible();
+    await expect(page.getByText(locale === "ar" ? /تسجيل الدخول مطلوب/ : /Sign in is required/)).toBeVisible();
     await expect(page.getByLabel(locale === "ar" ? "كلمة المرور" : "Password")).toHaveValue("");
     await expect(page.locator(".lesson-row")).toHaveCount(0);
   });

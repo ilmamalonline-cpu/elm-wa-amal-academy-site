@@ -45,6 +45,8 @@ export async function GET(request: Request) {
     rejected: "The password was not accepted. Check the requirements and try again.",
     uncertain: "We could not confirm whether the password was saved. Do not submit this invitation again; contact the academy to check the account.",
     success: "Your password is set. This step does not create a teacher profile or grant access to the teacher workspace. The academy must approve and assign the account separately.",
+    successNext: "Next step: contact the academy administrator through your usual channel to activate teacher access. You do not need to reset your password or create another account.",
+    successLink: "Go to teacher sign in",
     reviewBadge: "READ-ONLY REVIEW · NO INVITATION OR ACCOUNT",
     reviewStatus: "This is a display-only preview of the password setup screen. No invitation, account, or password change exists.",
     reviewEmail: "The invited email address will appear here after the invitee opens their own invitation link.",
@@ -65,6 +67,8 @@ export async function GET(request: Request) {
     rejected: "لم تُقبل كلمة المرور. تحقّق من المتطلبات ثم حاول مرة أخرى.",
     uncertain: "تعذّر التأكد من حفظ كلمة المرور. لا تعاود إرسال هذه الدعوة؛ تواصل مع الأكاديمية للتحقق من الحساب.",
     success: "تم ضبط كلمة المرور. لا تنشئ هذه الخطوة ملفًا للمعلم ولا تمنح وصولًا إلى مساحة المعلم؛ يجب على الأكاديمية اعتماد الحساب وتعيينه بصورة مستقلة.",
+    successNext: "الخطوة التالية: تواصل مع مسؤول الأكاديمية عبر قناتك المعتادة لتفعيل وصولك إلى مساحة المعلم. لا حاجة إلى إعادة ضبط كلمة المرور أو إنشاء حساب آخر.",
+    successLink: "الانتقال إلى تسجيل دخول المعلم",
     reviewBadge: "معاينة للقراءة فقط · لا توجد دعوة أو حساب",
     reviewStatus: "هذه معاينة شكلية لشاشة إعداد كلمة المرور. لا توجد دعوة أو حساب أو عملية تغيير كلمة مرور.",
     reviewEmail: "سيظهر البريد المدعو هنا عندما يفتح صاحبه رابط دعوته.",
@@ -78,6 +82,7 @@ const CFG = ${jsonForScript(pageConfig)};
 const COPY = ${jsonForScript(copy)};
 const status = document.getElementById("invite-status");
 const email = document.getElementById("invite-email");
+const next = document.getElementById("invite-next");
 const form = document.getElementById("invite-form");
 const password = document.getElementById("invite-password");
 const confirm = document.getElementById("invite-confirm");
@@ -143,6 +148,7 @@ if (CFG.reviewOnly) {
         form.hidden = true;
         status.textContent = COPY.success;
         status.setAttribute("role", "status");
+        next.hidden = false;
       } else if (response.status >= 400 && response.status < 500 && response.status !== 401) {
         dispatched = false;
         submit.disabled = false;
@@ -180,7 +186,7 @@ if (CFG.reviewOnly) {
 :root{color-scheme:light;--green:#145c4a;--deep:#0c3e34;--gold:#88631e;--cream:#f7f4ed}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--cream);color:#18332c;font:16px/1.65 Arial,sans-serif}.shell{width:min(680px,calc(100% - 28px));margin:0 auto;padding:32px 0 48px}.brand{border-bottom:1px solid #d8d0bd;padding:0 0 22px;margin-bottom:28px}.kicker{margin:0;color:var(--gold);font-size:.75rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.brand h1{margin:.35rem 0;color:var(--deep);font:700 clamp(1.9rem,5vw,3rem)/1.15 Georgia,serif}.card{background:#fff;border:1px solid #e2dbc9;border-radius:18px;box-shadow:0 10px 30px rgba(27,59,49,.06);padding:clamp(20px,5vw,38px)}.intro,.muted,.foot{color:#60776e;line-height:1.7}.status{padding:12px 14px;border-radius:10px;background:#f8faf7;color:var(--deep)}.status[role=alert]{background:#fff4e9;border:1px solid #dfb98a;color:#7d4423}.email{font-weight:700;color:var(--deep);overflow-wrap:anywhere}.form{display:grid;gap:17px;margin-top:20px}.form label{display:grid;gap:7px;font-weight:700;color:var(--deep)}.form input{width:100%;border:1px solid #cfd8cf;border-radius:9px;padding:12px 13px;background:#fcfdfb;font:inherit;color:var(--deep)}.form input:focus{outline:3px solid #d9bd75;border-color:var(--gold)}.form button{border:0;border-radius:999px;padding:12px 18px;background:var(--green);color:#fff;font:700 1rem Arial,sans-serif;cursor:pointer}.form button:disabled{opacity:.55;cursor:not-allowed}.review-badge{padding:9px 12px;border:1px solid #d8c58d;border-radius:9px;background:#fff9e9;color:#6d5117;font-size:.85rem;font-weight:800}.foot{margin:20px 4px 0;font-size:.88rem} [hidden]{display:none!important}
 </style>
 </head>
-<body><main class="shell"><header class="brand"><p class="kicker">${htmlText(copy.kicker)}</p><h1>${htmlText(copy.title)}</h1></header><section class="card" aria-labelledby="invite-title">${review}<h2 id="invite-title" hidden>${htmlText(copy.title)}</h2><p class="intro">${htmlText(copy.intro)}</p><p id="invite-status" class="status" role="status" aria-live="polite">${htmlText(copy.verifying)}</p><p id="invite-email" class="email" hidden></p><form id="invite-form" class="form" autocomplete="on" hidden><label for="invite-password">${htmlText(copy.password)}<input id="invite-password" name="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><label for="invite-confirm">${htmlText(copy.confirm)}<input id="invite-confirm" name="confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><button id="invite-submit" type="submit">${htmlText(copy.submit)}</button></form></section><p class="foot">${htmlText(copy.footer)}</p></main><script>${script}</script></body></html>`;
+<body><main class="shell"><header class="brand"><p class="kicker">${htmlText(copy.kicker)}</p><h1>${htmlText(copy.title)}</h1></header><section class="card" aria-labelledby="invite-title">${review}<h2 id="invite-title" hidden>${htmlText(copy.title)}</h2><p class="intro">${htmlText(copy.intro)}</p><p id="invite-status" class="status" role="status" aria-live="polite">${htmlText(copy.verifying)}</p><p id="invite-email" class="email" hidden></p><p id="invite-next" class="status" hidden>${htmlText(copy.successNext)}<br><a href="/${language}/teacher">${htmlText(copy.successLink)}</a></p><form id="invite-form" class="form" autocomplete="on" hidden><label for="invite-password">${htmlText(copy.password)}<input id="invite-password" name="new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><label for="invite-confirm">${htmlText(copy.confirm)}<input id="invite-confirm" name="confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><button id="invite-submit" type="submit">${htmlText(copy.submit)}</button></form></section><p class="foot">${htmlText(copy.footer)}</p></main><script>${script}</script></body></html>`;
 
   return new Response(html, { status: 200, headers: { ...BASE_HEADERS, "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": csp } });
 }

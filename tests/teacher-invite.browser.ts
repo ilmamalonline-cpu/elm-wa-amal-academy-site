@@ -70,7 +70,9 @@ test.beforeAll(async () => {
     const host = incoming.headers.host ?? "127.0.0.1";
     const headers = new Headers({ host });
     const acceptLanguage = incoming.headers["accept-language"];
-    if (typeof acceptLanguage === "string") headers.set("accept-language", acceptLanguage);
+    const testLanguage = incoming.headers["x-test-language"];
+    if (testLanguage === "ar" || testLanguage === "en") headers.set("accept-language", testLanguage);
+    else if (typeof acceptLanguage === "string") headers.set("accept-language", acceptLanguage);
     const request = new Request(`http://${host}${incoming.url ?? TEACHER_INVITE_PATH}`, { method: "GET", headers });
     const response = await GET(request);
     outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()));
@@ -96,9 +98,27 @@ test("valid invite token is scrubbed and only the invitee-chosen password is sen
   await page.getByLabel("Confirm new password", { exact: true }).fill("invitee-chosen-password");
   await page.getByRole("button", { name: "Set password" }).click();
   await expect(page.locator("#invite-status")).toContainText("Your password is set");
+  await expect(page.locator("#invite-next")).toContainText("contact the academy administrator through your usual channel");
+  await expect(page.locator("#invite-next a")).toHaveAttribute("href", "/en/teacher");
+  await expect(page.getByRole("link", { name: "Go to teacher sign in" })).toBeVisible();
   expect(mock.counts()).toEqual({ gets: 1, updates: 1 });
   expect(mock.payloads).toEqual([{ password: "invitee-chosen-password" }]);
   await expect(page.locator("#invite-status")).toContainText("does not create a teacher profile or grant access");
+});
+
+test("Arabic invite success explains the next activation step and links to Arabic sign in", async ({ page }) => {
+  await page.setExtraHTTPHeaders({ "x-test-language": "ar" });
+  const mock = await mockAuth(page);
+  await page.goto(`${baseUrl}${TEACHER_INVITE_PATH}#access_token=${encodeURIComponent(validAccessToken)}&type=invite`);
+  await expect(page.getByLabel("كلمة المرور الجديدة", { exact: true })).toBeVisible();
+  await page.getByLabel("كلمة المرور الجديدة", { exact: true }).fill("invitee-chosen-password");
+  await page.getByLabel("تأكيد كلمة المرور الجديدة", { exact: true }).fill("invitee-chosen-password");
+  await page.getByRole("button", { name: "حفظ كلمة المرور", exact: true }).click();
+  await expect(page.locator("#invite-status")).toContainText("تم ضبط كلمة المرور");
+  await expect(page.locator("#invite-next")).toContainText("تواصل مع مسؤول الأكاديمية عبر قناتك المعتادة");
+  await expect(page.locator("#invite-next a")).toHaveAttribute("href", "/ar/teacher");
+  await expect(page.getByRole("link", { name: "الانتقال إلى تسجيل دخول المعلم" })).toBeVisible();
+  expect(mock.counts()).toEqual({ gets: 1, updates: 1 });
 });
 
 test("review-only page shows the form but makes no Auth request and cannot submit", async ({ page }) => {

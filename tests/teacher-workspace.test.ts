@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { teacherSecurity, teacherToken, teacherCookie, teacherBody, teacherLogin, teacherPublicData, TEACHER_COOKIE } from "../src/lib/academy/teacher-workspace";
+import { teacherProfilePendingCopy } from "../src/lib/academy/teacher-workspace-copy";
 import { TeacherFoundationError, type FetchLike } from "../src/lib/academy/teacher-foundation";
 import * as route from "../src/app/api/teacher/route";
 const HOST="elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app";
@@ -87,4 +88,15 @@ test("real POST outcome route refuses anonymous and forbidden fields and strips 
  });
  const revoked=mocked([json(identity),json([teacher]),json([])]);
  await routeEnv(revoked.fetchImpl,async()=>{const result=await route.POST(routeReq("POST",update,{cookie:`${TEACHER_COOKIE}=${token}`}));assert.equal(result.status,403);assert.deepEqual(await result.json(),{error:"session_not_available"});});
+});
+
+test("pending teacher access copy is clear in Arabic and English without exposing internal or personal data",()=>{
+ assert.match(teacherProfilePendingCopy.ar,/تم التحقق من بيانات الدخول/);
+ assert.match(teacherProfilePendingCopy.ar,/قد ضبطت كلمة المرور من دعوة/);
+ assert.match(teacherProfilePendingCopy.ar,/تواصل مع مسؤول الأكاديمية/);
+ assert.match(teacherProfilePendingCopy.en,/sign-in was accepted/);
+ assert.match(teacherProfilePendingCopy.en,/set a password from an invitation/);
+ assert.match(teacherProfilePendingCopy.en,/contact the academy administrator/);
+ assert.match(teacherProfilePendingCopy.en,/do not need to reset your password or create another account/);
+ assert.doesNotMatch(`${teacherProfilePendingCopy.ar} ${teacherProfilePendingCopy.en}`,/academy_teachers|academy_teacher_assignments|@/i);
 });
