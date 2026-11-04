@@ -1,7 +1,17 @@
 -- PREVIEW ONLY: additive meeting-link field for assigned individual lessons.
 -- Requires db/teacher-foundation.sql and db/teacher-session-outcomes.sql.
 -- Draft only: do not apply to any hosted Supabase project without review.
+-- Preconditions for any future application: the effective database role must be
+-- `postgres` (Supabase SQL Editor runs queries as postgres). This guard runs
+-- before any DDL/DML; the transaction then fails closed for limited runners.
 BEGIN;
+DO $migration_role_guard$
+BEGIN
+  IF current_user <> 'postgres' THEN
+    RAISE EXCEPTION 'apply this migration as postgres; current_user is %', current_user;
+  END IF;
+END;
+$migration_role_guard$;
 SET LOCAL search_path = public, extensions, pg_catalog;
 
 ALTER TABLE public.academy_individual_lessons
@@ -100,6 +110,10 @@ BEGIN
   LIMIT 51 OFFSET p_offset;
 END;
 $$;
+-- SECURITY DEFINER executes with the function owner's privileges. Pin the owner
+-- explicitly before the ACL reset so the forced-RLS tables are read as postgres.
+ALTER FUNCTION public.academy_guardian_session_summaries(uuid, integer)
+  OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.academy_guardian_session_summaries(uuid, integer)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.academy_guardian_session_summaries(uuid, integer)

@@ -15,7 +15,7 @@ before(async () => {
   h = await startHarness();
   await h.admin.query(foundation);
   await h.admin.query(migration);
-  await h.admin.query(meetingMigration);
+  await h.admin.query('CREATE ROLE postgres WITH SUPERUSER NOLOGIN');
   await h.admin.query('INSERT INTO auth.users(id) VALUES ($1),($2)', [teacherA, teacherB]);
   await h.admin.query(`INSERT INTO public.academy_teachers(id,display_name,time_zone,status) VALUES
     ($1,'Teacher A','Africa/Cairo','active'),($2,'Teacher B','UTC','active')`, [teacherA, teacherB]);
@@ -44,7 +44,31 @@ const update = (uid, id, sql = 'outcome=$1, follow_up_note=$2', values = ['atten
 const updateMeeting = (uid, id, url = 'https://meet.google.com/abc-defg-hij') =>
   h.as(uid, 'UPDATE public.academy_individual_lessons SET meeting_url=$1 WHERE id=$2', [url, id]);
 
- test('meeting migration adds only explicit link privileges and no insert/delete', async () => {
+async function queryAsPostgres(sql) {
+  const client = await h.admin.connect();
+  try {
+    await client.query('SET ROLE postgres');
+    return await client.query(sql);
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    await client.query('RESET ROLE').catch(() => {});
+    client.release();
+  }
+}
+
+test('meeting migration requires postgres, pins the guardian RPC owner, and adds only link privileges', async () => {
+  const unprivileged = await h.admin.connect();
+  try {
+    await assert.rejects(() => unprivileged.query(meetingMigration), /apply this migration as postgres/);
+    await unprivileged.query('ROLLBACK').catch(() => {});
+    assert.equal((await unprivileged.query("SELECT count(*)::int AS count FROM information_schema.columns WHERE table_schema='public' AND table_name='academy_individual_lessons' AND column_name='meeting_url'")).rows[0].count, 0);
+  } finally {
+    unprivileged.release();
+  }
+  await queryAsPostgres(meetingMigration);
+
   const p = (await h.admin.query(`SELECT
     has_table_privilege('anon','public.academy_individual_lessons','SELECT') AS anon_select,
     has_table_privilege('authenticated','public.academy_individual_lessons','INSERT') AS insert_all,
@@ -56,6 +80,25 @@ const updateMeeting = (uid, id, url = 'https://meet.google.com/abc-defg-hij') =>
     has_column_privilege('authenticated','public.academy_individual_lessons','teacher_id','UPDATE') AS teacher_update,
     has_column_privilege('authenticated','public.academy_individual_lessons','created_at','SELECT') AS created_read`)).rows[0];
   assert.deepEqual(p, { anon_select: false, insert_all: false, delete_all: false, outcome_update: true, note_update: true, meeting_select: true, meeting_update: true, teacher_update: false, created_read: false });
+  const security = (await h.admin.query(`SELECT
+    pg_get_userbyid(p.proowner) AS owner,
+    p.prosecdef,
+    p.proconfig,
+    EXISTS (SELECT FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+      WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE') AS public_exec,
+    has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_exec,
+    has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated_exec
+    FROM pg_proc p
+    WHERE p.oid='public.academy_guardian_session_summaries(uuid,integer)'::regprocedure`)).rows[0];
+  assert.deepEqual(security, { owner: 'postgres', prosecdef: true, proconfig: ['search_path=pg_catalog'], public_exec: false, anon_exec: false, authenticated_exec: true });
+  const forcedRls = (await h.admin.query(`SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+    FROM pg_class c
+    WHERE c.oid IN ('public.academy_children'::regclass, 'public.academy_individual_lessons'::regclass)
+    ORDER BY c.relname`)).rows;
+  assert.deepEqual(forcedRls, [
+    { relname: 'academy_children', relrowsecurity: true, relforcerowsecurity: true },
+    { relname: 'academy_individual_lessons', relrowsecurity: true, relforcerowsecurity: true },
+  ]);
   await assert.rejects(() => h.as(teacherA, `INSERT INTO public.academy_individual_lessons(teacher_id,child_id,subject,starts_at,ends_at,time_zone) VALUES ($1,$2,'quran',now(),now()+interval '30 minutes','UTC')`, [teacherA, h.ids.childA]), /permission denied/);
   await assert.rejects(() => h.as(teacherA, 'DELETE FROM public.academy_individual_lessons WHERE id=$1', [ownLesson]), /permission denied/);
 });
@@ -131,6 +174,9 @@ test('guardian raw table is empty, RPC returns only permitted own-child summary,
   assert.ok(rows[0].meeting_url);
   assert.equal(rows[1].id, cancelledLesson);
   assert.equal(rows[1].meeting_url, null);
+  const guardianBRows = (await h.as(h.ids.guardianB, 'SELECT * FROM public.academy_guardian_session_summaries($1)', [childB])).rows;
+  assert.deepEqual(guardianBRows.map(row => row.id), [otherLesson]);
+  assert.ok(guardianBRows.every(row => row.child_id === childB));
   assert.equal((await h.as(h.ids.guardianA, 'SELECT * FROM public.academy_guardian_session_summaries($1)', [childB])).rowCount, 0);
   await assert.rejects(() => h.anon('SELECT * FROM public.academy_guardian_session_summaries($1)', [h.ids.childA]), /permission denied/);
   assert.equal((await h.as(null, 'SELECT * FROM public.academy_guardian_session_summaries($1)', [h.ids.childA])).rowCount, 0);
@@ -151,8 +197,7 @@ test('suspension and assignment revocation immediately block reads and writes', 
 test('migration is non-reapplicable and does not collide silently', async () => {
   await assert.rejects(() => h.admin.query(migration), /already exists|duplicate/);
   await h.admin.query('ROLLBACK').catch(() => {});
-  await assert.rejects(() => h.admin.query(meetingMigration), /already exists|duplicate/);
-  await h.admin.query('ROLLBACK').catch(() => {});
+  await assert.rejects(() => queryAsPostgres(meetingMigration), /already exists|duplicate/);
   assert.equal((await h.admin.query('SELECT count(*)::int AS count FROM public.academy_individual_lessons')).rows[0].count, 3);
 });
 
