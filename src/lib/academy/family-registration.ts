@@ -3,7 +3,9 @@ import { emptyLearning, type LearningData, type LearningPlan, type PracticeEntry
 
 // Server-side adapter. Never import this module into a client component.
 // No service-role key, role selection, demo identity or child credentials are accepted.
-export const FAMILY_PROJECT = "https://vbulxdnfknoybdkuhayz.supabase.co";
+export const FAMILY_PROJECT = "https://qcdolzoozfsxkfcqdqir.supabase.co";
+export const PRODUCTION_PROJECT = FAMILY_PROJECT;
+export const LOCAL_REVIEW_PROJECT = "https://vbulxdnfknoybdkuhayz.supabase.co";
 export const PREVIEW_PROJECT = "https://dyyvpcntbbwbuzskiidb.supabase.co";
 export const PREVIEW_OWNER_EMAIL = "abdelrahmanbakri113@gmail.com";
 export const FAMILY_COOKIE = "academy_family_access";
@@ -11,6 +13,7 @@ export const FAMILY_HEADERS = { "Cache-Control": "private, no-store", Vary: "Coo
 export const PREVIEW_CALLBACK_HOST = "elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app";
 const CALLBACK_PATH = "/auth/family/callback";
 type Env = Record<string, string | undefined>;
+type ProductionConfig = { siteOrigin: string; callback: string };
 type Json = Record<string, unknown>;
 export class FamilyError extends Error {
   constructor(public code: string, public status = 400) { super(code); }
@@ -27,12 +30,25 @@ function previewConfig(env: Env) {
     return { email, callback, share: shareValues[0] };
   } catch { return null; }
 }
-export function familyEnabled(env: Env = process.env) {
-  return (env.ACADEMY_FAMILY_REGISTRATION === "local-review" && !env.VERCEL && !env.VERCEL_ENV && !env.NETLIFY && !env.CF_PAGES) || !!previewConfig(env);
+export function familyProductionConfig(env: Env = process.env): ProductionConfig | null {
+  if (env.VERCEL !== "1" || env.VERCEL_ENV !== "production" || env.ACADEMY_FAMILY_REGISTRATION !== "production" || env.ACADEMY_FAMILY_PRODUCTION_LAUNCH !== "owner-approved" || env.ACADEMY_SUPABASE_URL !== PRODUCTION_PROJECT) return null;
+  const siteOrigin = env.ACADEMY_FAMILY_SITE_ORIGIN;
+  const callback = env.ACADEMY_FAMILY_CALLBACK_URL;
+  try {
+    const origin = new URL(siteOrigin ?? "");
+    const redirect = new URL(callback ?? "");
+    if (origin.protocol !== "https:" || origin.origin !== siteOrigin || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash || ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname)) return null;
+    if (redirect.href !== `${origin.origin}${CALLBACK_PATH}` || redirect.origin !== origin.origin || redirect.pathname !== CALLBACK_PATH || redirect.username || redirect.password || redirect.search || redirect.hash) return null;
+    return { siteOrigin: origin.origin, callback: redirect.href };
+  } catch { return null; }
 }
-export function familyMode(env: Env = process.env): "local-review" | "owner-preview" | null {
+export function familyEnabled(env: Env = process.env) {
+  return (env.ACADEMY_FAMILY_REGISTRATION === "local-review" && !env.VERCEL && !env.VERCEL_ENV && !env.NETLIFY && !env.CF_PAGES) || !!previewConfig(env) || !!familyProductionConfig(env);
+}
+export function familyMode(env: Env = process.env): "local-review" | "owner-preview" | "production" | null {
   if (env.ACADEMY_FAMILY_REGISTRATION === "local-review" && !env.VERCEL && !env.VERCEL_ENV && !env.NETLIFY && !env.CF_PAGES) return "local-review";
-  return previewConfig(env) ? "owner-preview" : null;
+  if (previewConfig(env)) return "owner-preview";
+  return familyProductionConfig(env) ? "production" : null;
 }
 export function familySecurity(request: Request, env: Env = process.env) {
   const mode = familyMode(env);
@@ -55,6 +71,18 @@ export function familySecurity(request: Request, env: Env = process.env) {
     if (request.method !== "GET" && (origin !== local.origin || request.headers.get("x-family-registration") !== "local-review")) throw new FamilyError("csrf_required", 403);
     return;
   }
+  if (mode === "production") {
+    const config = familyProductionConfig(env)!;
+    const site = new URL(config.siteOrigin);
+    if (!host || host !== site.host || parsed.origin !== config.siteOrigin || parsed.protocol !== "https:" || parsed.pathname !== "/api/family") throw new FamilyError("production_host_required", 403);
+    if (parsed.search) throw new FamilyError("invalid_request");
+    const forwardedHost = request.headers.get("x-forwarded-host"); const forwardedProto = request.headers.get("x-forwarded-proto");
+    if ((forwardedHost && forwardedHost !== site.host) || (forwardedProto && forwardedProto !== "https")) throw new FamilyError("production_host_required", 403);
+    const origin = request.headers.get("origin"); const siteHeader = request.headers.get("sec-fetch-site");
+    if ((origin && origin !== config.siteOrigin) || (siteHeader && !["same-origin", "none"].includes(siteHeader))) throw new FamilyError("same_origin_required", 403);
+    if (request.method !== "GET" && (origin !== config.siteOrigin || request.headers.get("x-family-registration") !== "local-review")) throw new FamilyError("csrf_required", 403);
+    return;
+  }
   const config = previewConfig(env)!;
   if (!host || host !== PREVIEW_CALLBACK_HOST || parsed.protocol !== "https:" || !["/api/family", "/api/family/session-summaries"].includes(parsed.pathname)) throw new FamilyError("preview_host_required", 403);
   const forwardedHost = request.headers.get("x-forwarded-host"); const forwardedProto = request.headers.get("x-forwarded-proto");
@@ -66,15 +94,19 @@ export function familySecurity(request: Request, env: Env = process.env) {
 }
 export function allowedPreviewEmail(email: string, env: Env = process.env) { const config = previewConfig(env); return !!config && email.trim().toLowerCase() === PREVIEW_OWNER_EMAIL; }
 export function previewCallbackUrl(env: Env = process.env) { return previewConfig(env)?.callback ?? null; }
+export function familyCallbackUrl(env: Env = process.env) {
+  const mode = familyMode(env);
+  return mode === "owner-preview" ? previewCallbackUrl(env) : mode === "production" ? familyProductionConfig(env)?.callback ?? null : null;
+}
 export function previewShare(env: Env = process.env) { return previewConfig(env)?.share ?? null; }
 export function previewSignupEnabled(env: Env = process.env) { return familyMode(env) !== "owner-preview" || env.ACADEMY_FAMILY_SIGNUP === "owner-test-approved"; }
 
 function configuration(env: Env) {
   const mode = familyMode(env);
   if (!mode) throw new FamilyError("registration_disabled", 503);
-  const url = mode === "owner-preview" ? PREVIEW_PROJECT : FAMILY_PROJECT;
+  const url = mode === "owner-preview" ? PREVIEW_PROJECT : mode === "production" ? PRODUCTION_PROJECT : LOCAL_REVIEW_PROJECT;
   if (!url || env.ACADEMY_SUPABASE_URL !== url) throw new FamilyError("configuration_required", 503);
-  const key = env.ACADEMY_SUPABASE_PUBLISHABLE_KEY ?? "";
+  const key = mode === "production" ? env.ACADEMY_SUPABASE_PRODUCTION_PUBLISHABLE_KEY ?? "" : mode === "owner-preview" ? env.ACADEMY_SUPABASE_PREVIEW_PUBLISHABLE_KEY ?? env.ACADEMY_SUPABASE_PUBLISHABLE_KEY ?? "" : env.ACADEMY_SUPABASE_PUBLISHABLE_KEY ?? "";
   let publicKey = key.startsWith("sb_publishable_") && key.length > 25;
   if (!publicKey) {
     try {
@@ -97,9 +129,14 @@ function profile(value: Json) {
   if (value.consent !== true || !["ar", "en"].includes(String(value.locale))) throw new FamilyError("consent_required");
   return { display_name: text(value.display_name, 2, 100), locale: value.locale, consent_version: "family-v1", consented_at: new Date().toISOString() };
 }
+function emailAddress(value: unknown) {
+  const email = text(value, 3, 254).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new FamilyError("invalid_credentials");
+  return email;
+}
 function credentials(value: Json) {
-  const email = text(value.email, 3, 254).toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof value.password !== "string" || value.password.length < 12 || value.password.length > 128) throw new FamilyError("invalid_credentials");
+  const email = emailAddress(value.email);
+  if (typeof value.password !== "string" || value.password.length < 12 || value.password.length > 128) throw new FamilyError("invalid_credentials");
   return { email, password: value.password };
 }
 function child(value: Json) {
@@ -248,13 +285,32 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
   }
   async function act(value: Json, token: string | null) {
     if (!familyEnabled(env)) throw new FamilyError("registration_disabled", 503);
+    if (value.action === "request-password-reset") {
+      shape(value, ["email"]);
+      if (familyMode(env) !== "production") throw new FamilyError("registration_disabled", 503);
+      const email = emailAddress(value.email);
+      const callback = familyCallbackUrl(env);
+      if (!callback) throw new FamilyError("configuration_required", 503);
+      await call(`/auth/v1/recover?redirect_to=${encodeURIComponent(callback)}`, "POST", { email });
+      return { data: { status: "recovery_email_sent" } };
+    }
+    if (value.action === "update-password") {
+      shape(value, ["access_token", "password"]);
+      if (familyMode(env) !== "production") throw new FamilyError("registration_disabled", 503);
+      const recoveryToken = value.access_token;
+      if (typeof recoveryToken !== "string" || !/^[A-Za-z0-9_.-]{20,3800}$/.test(recoveryToken) || typeof value.password !== "string" || value.password.length < 12 || value.password.length > 128) throw new FamilyError("invalid_credentials");
+      await user(recoveryToken);
+      await call("/auth/v1/user", "PUT", { password: value.password }, recoveryToken);
+      return { data: { status: "password_updated" } };
+    }
     if (value.action === "signup") {
       shape(value, ["email", "password", "display_name", "locale", "consent"]);
       const c = credentials(value); profile(value);
       if (familyMode(env) === "owner-preview" && !allowedPreviewEmail(c.email, env)) throw new FamilyError("not_allowed", 403);
       if (familyMode(env) === "owner-preview" && env.ACADEMY_FAMILY_SIGNUP !== "owner-test-approved") throw new FamilyError("signup_disabled", 503);
       await checkAuthSettings();
-      const redirect = familyMode(env) === "owner-preview" ? `?redirect_to=${encodeURIComponent(previewCallbackUrl(env)!)}` : "";
+      const callback = familyCallbackUrl(env);
+      const redirect = callback ? `?redirect_to=${encodeURIComponent(callback)}` : "";
       await call(`/auth/v1/signup${redirect}`, "POST", c);
       return { data: { status: "confirmation_required" } };
     }
@@ -275,6 +331,7 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
       }
       return { data: { status: "signed_out" }, token: "", maxAge: 0 };
     }
+    if (value.action === "learner-workspace" && familyMode(env) === "production") throw new FamilyError("registration_disabled", 503);
     if (!token) throw new FamilyError("sign_in_required", 401);
     const u = await user(token);
     if (value.action === "learner-workspace") {

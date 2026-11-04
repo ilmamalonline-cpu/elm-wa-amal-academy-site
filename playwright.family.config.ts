@@ -26,7 +26,7 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      command: "VERCEL=1 VERCEL_ENV=production ACADEMY_FAMILY_REGISTRATION=local-review npm run start -- --port 3421",
+      command: "VERCEL=1 VERCEL_ENV=production ACADEMY_FAMILY_REGISTRATION=production ACADEMY_SUPABASE_URL=https://qcdolzoozfsxkfcqdqir.supabase.co ACADEMY_FAMILY_SITE_ORIGIN=https://academy.example.test ACADEMY_FAMILY_CALLBACK_URL=https://academy.example.test/auth/family/callback npm run start -- --port 3421",
       url: "http://127.0.0.1:3421/en/family",
       reuseExistingServer: false,
       timeout: 30_000,

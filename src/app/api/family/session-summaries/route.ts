@@ -6,7 +6,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 function failure(err: unknown) {
   const error = err instanceof FamilyError ? err : new FamilyError("provider_unavailable", 503);
   const response = Response.json({ error: error.code }, { status: error.status, headers: FAMILY_HEADERS });
-  if (error.status === 401) response.headers.append("Set-Cookie", `${FAMILY_COOKIE}=; Path=/api/family; HttpOnly; SameSite=Strict;${familyMode() === "owner-preview" ? " Secure;" : ""} Max-Age=0`);
+  if (error.status === 401) response.headers.append("Set-Cookie", `${FAMILY_COOKIE}=; Path=/api/family; HttpOnly; SameSite=Strict;${familyMode() !== "local-review" ? " Secure;" : ""} Max-Age=0`);
   return response;
 }
 export async function GET(request: Request) {

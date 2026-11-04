@@ -7,7 +7,8 @@ import {
   familySecurity,
   familyToken,
   FamilyError,
-  FAMILY_PROJECT,
+  LOCAL_REVIEW_PROJECT,
+  PRODUCTION_PROJECT,
   PREVIEW_PROJECT,
   PREVIEW_OWNER_EMAIL,
   allowedPreviewEmail,
@@ -19,8 +20,19 @@ const childId = "22222222-2222-4222-8222-222222222222";
 const token = "tok_abcdefghijklmnopqrstuvwxyz";
 const env = (extra: Env = {}): Env => ({
   ACADEMY_FAMILY_REGISTRATION: "local-review",
-  ACADEMY_SUPABASE_URL: FAMILY_PROJECT,
+  ACADEMY_SUPABASE_URL: LOCAL_REVIEW_PROJECT,
   ACADEMY_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_abcdefghijklmnopqrstuvwxyz",
+  ...extra,
+});
+const productionEnv = (extra: Env = {}): Env => ({
+  ACADEMY_FAMILY_REGISTRATION: "production",
+  ACADEMY_FAMILY_PRODUCTION_LAUNCH: "owner-approved",
+  ACADEMY_SUPABASE_URL: PRODUCTION_PROJECT,
+  ACADEMY_SUPABASE_PRODUCTION_PUBLISHABLE_KEY: "sb_publishable_production_synthetic_only",
+  ACADEMY_FAMILY_SITE_ORIGIN: "https://academy.example.test",
+  ACADEMY_FAMILY_CALLBACK_URL: "https://academy.example.test/auth/family/callback",
+  VERCEL: "1",
+  VERCEL_ENV: "production",
   ...extra,
 });
 
@@ -76,6 +88,40 @@ test("feature is disabled by default and on hosted Vercel environments even when
   assert.throws(() => familySecurity(request(), env({ VERCEL_ENV: "preview" })), (e: unknown) => errorCode(e)[0] === "registration_disabled");
 });
 
+test("production mode allows only exact project, Vercel environment, site origin, callback, and separate launch approval", () => {
+  assert.equal(familyEnabled(env(productionEnv())), true);
+  assert.equal(familyEnabled(env({ ...productionEnv(), ACADEMY_FAMILY_REGISTRATION: undefined })), false);
+  assert.equal(familyEnabled(env({ ...productionEnv(), ACADEMY_FAMILY_PRODUCTION_LAUNCH: undefined })), false);
+  for (const bad of [
+    { VERCEL: undefined },
+    { VERCEL_ENV: "preview" },
+    { ACADEMY_SUPABASE_URL: PREVIEW_PROJECT },
+    { ACADEMY_FAMILY_SITE_ORIGIN: undefined },
+    { ACADEMY_FAMILY_SITE_ORIGIN: "http://academy.example.test" },
+    { ACADEMY_FAMILY_SITE_ORIGIN: "https://academy.example.test/" },
+    { ACADEMY_FAMILY_CALLBACK_URL: "https://evil.example/auth/family/callback" },
+    { ACADEMY_FAMILY_CALLBACK_URL: "https://academy.example.test/auth/family/callback?token=x" },
+    { ACADEMY_FAMILY_CALLBACK_URL: "https://academy.example.test/auth/family/other" },
+  ]) assert.equal(familyEnabled(env(productionEnv(bad))), false);
+});
+
+test("production security permits only configured HTTPS same-origin requests and enforces CSRF", () => {
+  const origin = "https://academy.example.test";
+  familySecurity(request("GET", `${origin}/api/family`), env(productionEnv()));
+  familySecurity(request("POST", `${origin}/api/family`, { origin, "x-family-registration": "local-review" }), env(productionEnv()));
+  for (const [url, headers] of [
+    [`${origin}/api/family`, { host: "evil.example" }],
+    [`${origin}/api/family`, { origin: "https://evil.example" }],
+    [`${origin}/api/family`, { "x-forwarded-host": "evil.example" }],
+    [`${origin}/api/family`, { "x-forwarded-proto": "http" }],
+    [`http://academy.example.test/api/family`, { origin }],
+    [`${origin}/api/family?access_token=synthetic`, {}],
+    [`${origin}/api/family/session-summaries?child_id=${childId}&offset=0`, {}],
+    [`${origin}/api/family/extra`, {}],
+  ] as [string, Record<string, string>][]) assert.throws(() => familySecurity(request("GET", url, headers), env(productionEnv())));
+  assert.throws(() => familySecurity(request("POST", `${origin}/api/family`, { origin }), env(productionEnv())), (e: unknown) => errorCode(e)[0] === "csrf_required");
+});
+
 test("security permits only loopback same-origin requests and rejects forwarding, origin, query and CSRF tricks", () => {
   familySecurity(request("GET", "http://localhost/"), env());
   for (const headers of [
@@ -109,15 +155,56 @@ test("preview signup remains closed without independent approval and makes no pr
   assert.equal(m.calls.length, 0);
 });
 
-test("preview whitelist is immutable, rejects old project, wrong branch, and production flags without calls", async () => {
+test("preview whitelist is immutable, rejects other projects, wrong branch, and production flags without calls", async () => {
   const preview = { ACADEMY_SUPABASE_URL: PREVIEW_PROJECT, ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_ALLOWED_EMAIL: "attacker@example.test", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share", ACADEMY_FAMILY_SIGNUP: "owner-test-approved" };
   assert.equal(familyEnabled(env(preview)), true);
-  assert.equal(familyEnabled(env({ ...preview, ACADEMY_SUPABASE_URL: FAMILY_PROJECT })), false);
-  await rejectsCode(Promise.resolve().then(() => familyAdapter(env({ ...preview, ACADEMY_SUPABASE_URL: FAMILY_PROJECT })).act({ action: "login", email: PREVIEW_OWNER_EMAIL, password: "long-enough-password" }, null)), "registration_disabled", 503);
+  assert.equal(familyEnabled(env({ ...preview, ACADEMY_SUPABASE_URL: PRODUCTION_PROJECT })), false);
+  await rejectsCode(Promise.resolve().then(() => familyAdapter(env({ ...preview, ACADEMY_SUPABASE_URL: PRODUCTION_PROJECT })).act({ action: "login", email: PREVIEW_OWNER_EMAIL, password: "long-enough-password" }, null)), "registration_disabled", 503);
   await rejectsCode(familyAdapter(env(preview), mockFetch().fetcher).act({ action: "login", email: "attacker@example.test", password: "long-enough-password" }, null), "not_allowed", 403);
   assert.equal(allowedPreviewEmail(PREVIEW_OWNER_EMAIL, env(preview)), true);
   assert.equal(allowedPreviewEmail("attacker@example.test", env(preview)), false);
   for (const flags of [{ VERCEL_ENV: "production" }, { VERCEL_GIT_COMMIT_REF: "preview/other" }]) assert.equal(familyEnabled(env({ ...preview, ...flags })), false);
+});
+
+test("production and Preview cannot borrow each other's project-specific family keys", async () => {
+  await rejectsCode(Promise.resolve().then(() => familyAdapter(productionEnv({ ACADEMY_SUPABASE_PRODUCTION_PUBLISHABLE_KEY: undefined, ACADEMY_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_preview_synthetic_only" }))), "configuration_required", 503);
+  const preview = { ACADEMY_SUPABASE_URL: PREVIEW_PROJECT, ACADEMY_FAMILY_REGISTRATION: "owner-preview", VERCEL: "1", VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "preview/academy-synthetic", ACADEMY_FAMILY_CALLBACK_URL: "https://elm-wa-amal-academy-site-git-d39dec-ilmamalonline-cpus-projects.vercel.app/auth/family/callback?_vercel_share=synthetic_share", ACADEMY_SUPABASE_PUBLISHABLE_KEY: undefined, ACADEMY_SUPABASE_PREVIEW_PUBLISHABLE_KEY: undefined, ACADEMY_SUPABASE_PRODUCTION_PUBLISHABLE_KEY: "sb_publishable_production_synthetic_only" };
+  await rejectsCode(Promise.resolve().then(() => familyAdapter(env(preview))), "configuration_required", 503);
+  const wrongProjectJwt = "eyJhbGciOiJub25lIn0.eyJyb2xlIjoiYW5vbiIsInJlZiI6ImR5eXZwY250YmJ3YnV6c2tpZGIifQ.x";
+  await rejectsCode(Promise.resolve().then(() => familyAdapter(productionEnv({ ACADEMY_SUPABASE_PRODUCTION_PUBLISHABLE_KEY: wrongProjectJwt }))), "configuration_required", 503);
+});
+
+test("production family auth does not expose the synthetic learner workspace", async () => {
+  const m = mockFetch();
+  await rejectsCode(familyAdapter(productionEnv(), m.fetcher).act({ action: "learner-workspace", child_id: childId, locale: "en" }, token), "registration_disabled", 503);
+  assert.equal(m.calls.length, 0);
+});
+
+test("production signup requires email confirmation and uses only its configured callback", async () => {
+  const settings = mockFetch({ "/auth/v1/settings": { mailer_autoconfirm: false, disable_signup: false, external: { email: true } } });
+  await familyAdapter(productionEnv(), settings.fetcher).act({ action: "signup", email: "guardian@example.test", password: "long-enough-password", display_name: "Guardian Test", locale: "en", consent: true }, null);
+  const signup = settings.calls.find(call => call.url.includes("/auth/v1/signup"))!;
+  assert.equal(new URL(signup.url).searchParams.get("redirect_to"), "https://academy.example.test/auth/family/callback");
+  assert.equal(settings.calls[0].url.includes("/auth/v1/settings"), true);
+  const autoconfirm = mockFetch({ "/auth/v1/settings": { mailer_autoconfirm: true, disable_signup: false, external: { email: true } } });
+  await rejectsCode(familyAdapter(productionEnv(), autoconfirm.fetcher).act({ action: "signup", email: "guardian@example.test", password: "long-enough-password", display_name: "Guardian Test", locale: "en", consent: true }, null), "email_confirmation_configuration_required", 503);
+  assert.equal(autoconfirm.calls.length, 1);
+});
+
+test("production password reset is generic, callback-pinned, and updates only with a verified recovery token", async () => {
+  const recoveryPath = "/auth/v1/recover?redirect_to=https%3A%2F%2Facademy.example.test%2Fauth%2Ffamily%2Fcallback";
+  const m = mockFetch({ [recoveryPath]: {}, "/auth/v1/user": { id: userId, email_confirmed_at: "2026-01-01T00:00:00Z" } });
+  const adapter = familyAdapter(productionEnv(), m.fetcher);
+  assert.deepEqual((await adapter.act({ action: "request-password-reset", email: "Guardian@example.test" }, null)).data, { status: "recovery_email_sent" });
+  const recovery = m.calls.find(call => call.url.includes("/auth/v1/recover"))!;
+  assert.deepEqual(JSON.parse(String(recovery.init.body)), { email: "guardian@example.test" });
+  assert.equal(new URL(recovery.url).searchParams.get("redirect_to"), "https://academy.example.test/auth/family/callback");
+  assert.deepEqual((await adapter.act({ action: "update-password", access_token: token, password: "new-long-password-123" }, null)).data, { status: "password_updated" });
+  const update = m.calls.find(call => call.url.endsWith("/auth/v1/user") && call.init.method === "PUT")!;
+  assert.equal((update.init.headers as Record<string, string>).Authorization, `Bearer ${token}`);
+  assert.deepEqual(JSON.parse(String(update.init.body)), { password: "new-long-password-123" });
+  await rejectsCode(adapter.act({ action: "update-password", access_token: token, password: "short" }, null), "invalid_credentials");
+  await rejectsCode(familyAdapter(env(), mockFetch().fetcher).act({ action: "request-password-reset", email: "guardian@example.test" }, null), "registration_disabled", 503);
 });
 
 
@@ -227,7 +314,7 @@ test("provider network exceptions and redirects cannot leak details or bypass th
   const m = mockFetch({ "/auth/v1/settings": { mailer_autoconfirm: false, disable_signup: false, external: { email: true } } });
   await familyAdapter(env(), m.fetcher).act({ action: "signup", email: "test@example.test", password: "synthetic-password", display_name: "Guardian Test", locale: "en", consent: true }, null);
   for (const call of m.calls) {
-    assert.equal(new URL(call.url).origin, FAMILY_PROJECT);
+    assert.equal(new URL(call.url).origin, LOCAL_REVIEW_PROJECT);
     assert.equal(call.init.redirect, "error");
     assert.equal(call.init.cache, "no-store");
   }
@@ -251,7 +338,7 @@ test("readiness performs only fixed GET probes and returns no credentials or raw
     assert.equal(c.init.method, "GET");
     assert.equal(c.init.body, undefined);
     assert.equal(c.init.redirect, "error");
-    assert.equal(new URL(c.url).origin, FAMILY_PROJECT);
+    assert.equal(new URL(c.url).origin, LOCAL_REVIEW_PROJECT);
     assert.equal((c.init.headers as Record<string, string>).Authorization, undefined);
   }
   assert.doesNotMatch(JSON.stringify(result), /sb_publishable_|password|access_token|permission denied/);

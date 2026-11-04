@@ -23,7 +23,8 @@ export default async function FamilyPage({ params }: Props) {
       const host = incoming.get("host") as string;
       const requestHeaders = new Headers(incoming);
       requestHeaders.set("host", host);
-      if (familyEnabled() && process.env.VERCEL === "1" && process.env.VERCEL_ENV === "preview") {
+      const mode = familyMode();
+      if (mode === "owner-preview" || mode === "production") {
         requestHeaders.set("x-forwarded-proto", "https");
         familySecurity(new Request(`https://${host}/api/family`, { headers: requestHeaders }));
       } else familySecurity(new Request(`http://${host}/`, { headers: requestHeaders }));
@@ -36,10 +37,10 @@ export default async function FamilyPage({ params }: Props) {
         <div className="family-shell">
           <p className="family-kicker">{locale === "ar" ? "مساحة الأسرة" : "FAMILY SPACE"}</p>
           <h1>{locale === "ar" ? "تسجيل الأسرة غير متاح" : "Family registration is unavailable"}</h1>
-          <p>{locale === "ar" ? "هذه الواجهة متاحة فقط لمراجعة مالك محددة في Preview أو لمراجعة محلية على جهاز loopback." : "This interface is available only for the designated Preview owner review or a local loopback review."}</p>
+          <p>{locale === "ar" ? "التسجيل مغلق حاليًا. تتطلب إتاحته مراجعة محلية أو Preview مصرحًا به، أو موافقة إطلاق إنتاجية مستقلة." : "Registration is currently closed. Access requires a local review, an authorized Preview, or separate production launch approval."}</p>
         </div>
       </main>
     );
   }
-  return <FamilyRegistration locale={locale} preview={familyMode() === "owner-preview"} previewSignupEnabled={previewSignupEnabled()} />;
+  return <FamilyRegistration locale={locale} preview={familyMode() === "owner-preview"} production={familyMode() === "production"} previewSignupEnabled={previewSignupEnabled()} />;
 }

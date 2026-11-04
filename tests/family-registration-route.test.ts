@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GET, POST } from "../src/app/api/family/route";
-import { FAMILY_PROJECT, PREVIEW_PROJECT } from "../src/lib/academy/family-registration";
+import { LOCAL_REVIEW_PROJECT, PREVIEW_PROJECT, PRODUCTION_PROJECT } from "../src/lib/academy/family-registration";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const accessToken = "synthetic_access_token_abcdefghijklmnopqrstuvwxyz";
@@ -13,7 +13,7 @@ function req(action?: Record<string, unknown>, cookie?: string) {
   });
 }
 async function isolated(run: () => Promise<void>) {
-  const names = ["ACADEMY_FAMILY_REGISTRATION", "ACADEMY_SUPABASE_URL", "ACADEMY_SUPABASE_PUBLISHABLE_KEY", "ACADEMY_FAMILY_ALLOWED_EMAIL", "ACADEMY_FAMILY_CALLBACK_URL", "ACADEMY_FAMILY_SIGNUP", "VERCEL", "VERCEL_ENV", "VERCEL_GIT_COMMIT_REF", "NETLIFY", "CF_PAGES"];
+  const names = ["ACADEMY_FAMILY_REGISTRATION", "ACADEMY_FAMILY_PRODUCTION_LAUNCH", "ACADEMY_FAMILY_SITE_ORIGIN", "ACADEMY_SUPABASE_URL", "ACADEMY_SUPABASE_PUBLISHABLE_KEY", "ACADEMY_SUPABASE_PREVIEW_PUBLISHABLE_KEY", "ACADEMY_SUPABASE_PRODUCTION_PUBLISHABLE_KEY", "ACADEMY_FAMILY_ALLOWED_EMAIL", "ACADEMY_FAMILY_CALLBACK_URL", "ACADEMY_FAMILY_SIGNUP", "VERCEL", "VERCEL_ENV", "VERCEL_GIT_COMMIT_REF", "NETLIFY", "CF_PAGES"];
   const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
   const original = globalThis.fetch;
   try {
@@ -28,7 +28,7 @@ async function isolated(run: () => Promise<void>) {
 }
 function enable() {
   process.env.ACADEMY_FAMILY_REGISTRATION = "local-review";
-  process.env.ACADEMY_SUPABASE_URL = FAMILY_PROJECT;
+  process.env.ACADEMY_SUPABASE_URL = LOCAL_REVIEW_PROJECT;
   process.env.ACADEMY_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_synthetic_offline_example";
 }
 
@@ -98,6 +98,20 @@ function enablePreview() {
   process.env.ACADEMY_FAMILY_CALLBACK_URL = `https://${previewHost}/auth/family/callback?_vercel_share=synthetic-share`;
   process.env.ACADEMY_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_synthetic_offline_example";
 }
+const productionHost = "academy.example.test";
+function productionReq(action?: Record<string, unknown>, origin = `https://${productionHost}`, ip = "198.51.100.40") {
+  return new Request(`${origin}/api/family`, { method: action ? "POST" : "GET", headers: { host: productionHost, origin, "x-forwarded-host": productionHost, "x-forwarded-proto": "https", "x-real-ip": ip, "content-type": "application/json", "x-family-registration": "local-review" }, ...(action ? { body: JSON.stringify(action) } : {}) });
+}
+function enableProduction(launchApproved = true) {
+  process.env.ACADEMY_FAMILY_REGISTRATION = "production";
+  if (launchApproved) process.env.ACADEMY_FAMILY_PRODUCTION_LAUNCH = "owner-approved";
+  process.env.ACADEMY_SUPABASE_URL = PRODUCTION_PROJECT;
+  process.env.ACADEMY_SUPABASE_PRODUCTION_PUBLISHABLE_KEY = "sb_publishable_production_synthetic_only";
+  process.env.ACADEMY_FAMILY_SITE_ORIGIN = `https://${productionHost}`;
+  process.env.ACADEMY_FAMILY_CALLBACK_URL = `https://${productionHost}/auth/family/callback`;
+  process.env.VERCEL = "1";
+  process.env.VERCEL_ENV = "production";
+}
 
 test("preview rejects disallowed auth before provider calls and rejects origin/host", async () => isolated(async () => {
   enablePreview();
@@ -134,6 +148,52 @@ test("production stays closed even with every preview opt-in and the correct bra
   assert.deepEqual(await (await GET(previewReq())).json(), { error: "registration_disabled" });
   assert.deepEqual(await (await POST(previewReq({ action: "signup", email: "abdelrahmanbakri113@gmail.com", password: "synthetic-password-123", display_name: "Test", locale: "en", consent: true }))).json(), { error: "registration_disabled" });
   assert.equal(calls, 0);
+}));
+
+test("production is fail-closed without the separate launch approval even with correct project and callback", async () => isolated(async () => {
+  enableProduction(false); let calls = 0;
+  globalThis.fetch = async () => { calls++; throw new Error("unexpected network"); };
+  assert.deepEqual(await (await GET(productionReq())).json(), { error: "registration_disabled" });
+  assert.deepEqual(await (await POST(productionReq({ action: "request-password-reset", email: "guardian@example.test" }))).json(), { error: "registration_disabled" });
+  assert.equal(calls, 0);
+}));
+
+test("production password reset is same-origin, callback-pinned, generic, and rate-limited", async () => isolated(async () => {
+  enableProduction(); const calls: URL[] = [];
+  globalThis.fetch = async (input) => { const url = new URL(String(input)); calls.push(url); return Response.json({}); };
+  const action = { action: "request-password-reset", email: "guardian@example.test" };
+  const wrongOrigin = await POST(productionReq(action, "https://evil.example", "198.51.100.41"));
+  assert.equal(wrongOrigin.status, 403); assert.equal(calls.length, 0);
+  for (let index = 0; index < 5; index++) {
+    const response = await POST(productionReq(action, `https://${productionHost}`, "198.51.100.42"));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: "recovery_email_sent" });
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+  }
+  const recovery = calls.find(url => url.pathname === "/auth/v1/recover")!;
+  assert.equal(recovery.origin, PRODUCTION_PROJECT);
+  assert.equal(recovery.searchParams.get("redirect_to"), `https://${productionHost}/auth/family/callback`);
+  const limited = await POST(productionReq(action, `https://${productionHost}`, "198.51.100.42"));
+  assert.equal(limited.status, 429);
+  assert.deepEqual(await limited.json(), { error: "try_later" });
+  assert.equal(calls.length, 5);
+}));
+
+test("production recovery token updates the password without a browser cookie or token response", async () => isolated(async () => {
+  enableProduction(); const calls: { url: URL; init?: RequestInit }[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input)); calls.push({ url, init });
+    return url.pathname === "/auth/v1/user" ? Response.json({ id, email_confirmed_at: "2026-01-01T00:00:00Z" }) : Response.json({});
+  };
+  const result = await POST(productionReq({ action: "update-password", access_token: accessToken, password: "new-password-long-enough" }, `https://${productionHost}`, "198.51.100.43"));
+  assert.equal(result.status, 200);
+  const responseBody = await result.text();
+  assert.deepEqual(JSON.parse(responseBody), { status: "password_updated" });
+  assert.equal(result.headers.has("set-cookie"), false);
+  assert.doesNotMatch(responseBody, /access_token|refresh_token/);
+  const update = calls.find(call => call.url.pathname === "/auth/v1/user" && call.init?.method === "PUT")!;
+  assert.equal(new Headers(update.init?.headers).get("authorization"), `Bearer ${accessToken}`);
+  assert.deepEqual(JSON.parse(String(update.init?.body)), { password: "new-password-long-enough" });
 }));
 
 test("preview login validates provider email and stores only a Secure HttpOnly access cookie", async () => isolated(async () => {
