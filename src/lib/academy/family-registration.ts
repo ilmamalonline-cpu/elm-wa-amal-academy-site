@@ -1,5 +1,6 @@
 import { syntheticLearnerWorkspace } from "./learner";
 import { emptyLearning, type LearningData, type LearningPlan, type PracticeEntry } from "./learning";
+import { validMeetingUrl } from "./meeting-url";
 
 // Server-side adapter. Never import this module into a client component.
 // No service-role key, role selection, demo identity or child credentials are accepted.
@@ -236,7 +237,7 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
     if (selected.id !== childId) throw new FamilyError("not_allowed", 403);
     const rows = await call("/rest/v1/rpc/academy_guardian_session_summaries", "POST", { p_child_id: childId, p_offset: offset }, token) as unknown;
     if (!Array.isArray(rows) || rows.length > 51) throw new FamilyError("provider_unavailable", 503);
-    const allowed = new Set(["id", "child_id", "subject", "starts_at", "ends_at", "time_zone", "status", "outcome", "follow_up_note"]);
+    const allowed = new Set(["id", "child_id", "subject", "starts_at", "ends_at", "time_zone", "status", "meeting_url", "outcome", "follow_up_note"]);
     const subjects = new Set(["quran", "nur_al_bayan", "tajweed"]);
     const outcomes = new Set(["attended_completed", "attended_incomplete", "absent"]);
     const statuses = new Set(["scheduled", "cancelled"]);
@@ -248,8 +249,8 @@ export function familyAdapter(env: Env = process.env, fetcher: typeof fetch = fe
       const validZone = (() => { try { if (typeof value.time_zone !== "string") throw new Error(); new Intl.DateTimeFormat("en", { timeZone: value.time_zone }).format(); return true; } catch { return false; } })();
       const note = value.follow_up_note;
       const validNote = typeof note === "string" && [...note].length <= 500 && (note === "" || note.trim().length > 0) && ![...note].some((character) => { const code = character.codePointAt(0)!; return (code >= 0 && code <= 8) || (code >= 11 && code <= 12) || (code >= 14 && code <= 31) || (code >= 127 && code <= 159); }) && (value.outcome !== null ? true : note === "");
-      if (Object.keys(value).some((key) => !allowed.has(key)) || typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id) || value.child_id !== childId || typeof value.subject !== "string" || !subjects.has(value.subject) || !Number.isFinite(starts.getTime()) || !Number.isFinite(ends.getTime()) || starts.getTime() >= ends.getTime() || typeof value.starts_at !== "string" || typeof value.ends_at !== "string" || typeof value.time_zone !== "string" || !validZone || typeof value.status !== "string" || !statuses.has(value.status) || (value.outcome !== null && (typeof value.outcome !== "string" || !outcomes.has(value.outcome))) || !validNote) throw new FamilyError("provider_unavailable", 503);
-      return { id: value.id, child_id: childId, subject: value.subject, starts_at: value.starts_at, ends_at: value.ends_at, time_zone: value.time_zone, status: value.status, outcome: value.outcome, follow_up_note: value.follow_up_note };
+      if (Object.keys(value).some((key) => !allowed.has(key)) || typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.id) || value.child_id !== childId || typeof value.subject !== "string" || !subjects.has(value.subject) || !Number.isFinite(starts.getTime()) || !Number.isFinite(ends.getTime()) || starts.getTime() >= ends.getTime() || typeof value.starts_at !== "string" || typeof value.ends_at !== "string" || typeof value.time_zone !== "string" || !validZone || typeof value.status !== "string" || !statuses.has(value.status) || !validMeetingUrl(value.meeting_url) || (value.outcome !== null && (typeof value.outcome !== "string" || !outcomes.has(value.outcome))) || !validNote) throw new FamilyError("provider_unavailable", 503);
+      return { id: value.id, child_id: childId, subject: value.subject, starts_at: value.starts_at, ends_at: value.ends_at, time_zone: value.time_zone, status: value.status, meeting_url: value.meeting_url, outcome: value.outcome, follow_up_note: value.follow_up_note };
     });
     return { summaries: safe.slice(0, 50), has_more: safe.length === 51, next_offset: safe.length === 51 ? offset + 50 : null };
   }

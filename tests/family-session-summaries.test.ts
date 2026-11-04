@@ -17,7 +17,7 @@ function request(childId = child, offset = "0", cookie = token) {
   const req = new Request(`https://${host}/api/family/session-summaries?child_id=${childId}&offset=${offset}`, { headers: { host, origin: `https://${host}`, "x-forwarded-host": host, "x-forwarded-proto": "https", "x-family-registration": "local-review", ...(cookie ? { cookie: `academy_family_access=${cookie}` } : {}) } });
   return req;
 }
-function setup(rows: unknown = [{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", outcome: "attended_completed", follow_up_note: "Practice the opening verses." }]) {
+function setup(rows: unknown = [{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", meeting_url: null, outcome: "attended_completed", follow_up_note: "Practice the opening verses." }]) {
   enable();
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
@@ -30,16 +30,16 @@ function setup(rows: unknown = [{ id: "44444444-4444-4444-8444-444444444444", ch
   };
 }
 test("returns only allowlisted stored summaries and bounded pagination", async () => {
-  setup([{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", outcome: null, follow_up_note: "" }]);
+  setup([{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", meeting_url: "https://meet.google.com/abc-defg-hij", outcome: null, follow_up_note: "" }]);
   const response = await GET(request());
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", outcome: null, follow_up_note: "" }], has_more: false, next_offset: null });
+  assert.deepEqual(await response.json(), { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", meeting_url: "https://meet.google.com/abc-defg-hij", outcome: null, follow_up_note: "" }], has_more: false, next_offset: null });
 });
 test("fails closed for unsigned, invalid pagination, and malformed outcome", async () => {
   setup();
   assert.equal((await GET(request(child, "0", ""))).status, 401);
   assert.equal((await GET(request(child, "10001"))).status, 400);
-  setup([{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "x", ends_at: "y", time_zone: "UTC", status: "scheduled", outcome: "teacher_private", follow_up_note: "" }]);
+  setup([{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "x", ends_at: "y", time_zone: "UTC", status: "scheduled", meeting_url: null, outcome: "teacher_private", follow_up_note: "" }]);
   assert.equal((await GET(request())).status, 503);
 });
 
@@ -60,8 +60,8 @@ test("guardian summary denies a child not owned by caller before reading outcome
   const response=await GET(request());assert.equal(response.status,404);assert.equal(rpc,false);
 });
 test("provider contract rejects malformed summaries and private fields", async () => {
-  const row={id:"44444444-4444-4444-8444-444444444444",child_id:child,subject:"quran",starts_at:"2026-01-01T10:00:00Z",ends_at:"2026-01-01T10:30:00Z",time_zone:"UTC",status:"scheduled",outcome:"absent",follow_up_note:""};
-  for(const patch of [{id:"fake"},{child_id:guardian},{subject:"group"},{starts_at:"invalid"},{ends_at:row.starts_at},{time_zone:"Not/Zone"},{teacher_id:guardian},{follow_up_note:"x".repeat(501)},{follow_up_note:" "},{follow_up_note:"x\u0085"},{outcome:null,follow_up_note:"note"}]){setup([{...row,...patch}]);assert.equal((await GET(request())).status,503,JSON.stringify(patch));}
+  const row={id:"44444444-4444-4444-8444-444444444444",child_id:child,subject:"quran",starts_at:"2026-01-01T10:00:00Z",ends_at:"2026-01-01T10:30:00Z",time_zone:"UTC",status:"scheduled",meeting_url:null,outcome:"absent",follow_up_note:""};
+  for(const patch of [{id:"fake"},{child_id:guardian},{subject:"group"},{starts_at:"invalid"},{ends_at:row.starts_at},{time_zone:"Not/Zone"},{teacher_id:guardian},{follow_up_note:"x".repeat(501)},{follow_up_note:" "},{follow_up_note:"x\u0085"},{outcome:null,follow_up_note:"note"},{meeting_url:"https://evil.example/meet"},{meeting_url:"https://meet.google.com"},{meeting_url:"https://meet.google.com:443/abc"},{meeting_url:"https://meet.google.com/%ZZ"},{meeting_url:"https://meet.google.com/"+"a".repeat(300)}]){setup([{...row,...patch}]);assert.equal((await GET(request())).status,503,JSON.stringify(patch));}
   setup([{...row,follow_up_note:"😀".repeat(500)}]);assert.equal((await GET(request())).status,200);
 });
 

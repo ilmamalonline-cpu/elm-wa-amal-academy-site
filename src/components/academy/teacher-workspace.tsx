@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { Locale } from "@/content/site";
+import { validMeetingUrl } from "@/lib/academy/meeting-url";
 import { teacherProfilePendingCopy } from "@/lib/academy/teacher-workspace-copy";
 import "./teacher-workspace.css";
 
 type Teacher = { id: string; display_name: string; time_zone: string };
 type Outcome = "attended_completed" | "attended_incomplete" | "absent";
-type Lesson = { id: string; subject: string; starts_at: string; ends_at: string; time_zone: string; status: string; outcome: Outcome | null; follow_up_note: string };
+type Lesson = { id: string; subject: string; starts_at: string; ends_at: string; time_zone: string; status: string; meeting_url: string | null; outcome: Outcome | null; follow_up_note: string };
 type ReadData = { teacher: Teacher; lessons: Lesson[]; has_more: boolean; offset: number };
 type ApiError = { error?: string; lesson?: Lesson };
 
@@ -20,6 +21,7 @@ const labels = {
   network: ["تعذر الاتصال. حاول مرة أخرى.", "The service could not be reached. Try again."],
   save_failed: ["تعذر حفظ تحديث الجلسة. لم يتم تأكيد الحفظ.", "The session update could not be saved. It was not confirmed."],
   invalid_session_outcome: ["النتيجة أو الملاحظة غير صالحة.", "The outcome or note is invalid."],
+  invalid_meeting_url: ["رابط الاجتماع غير صالح أو ليس من المضيفين المسموحين.", "The meeting link is invalid or uses a host that is not allowed."],
   session_not_available: ["هذه الجلسة لم تعد متاحة للتحديث.", "This session is no longer available for update."],
 };
 
@@ -39,6 +41,7 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draftOutcome, setDraftOutcome] = useState<Outcome | "">("");
   const [draftNote, setDraftNote] = useState("");
+  const [draftMeetingUrl, setDraftMeetingUrl] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
 
   const request = useCallback(async (init: RequestInit = {}, query = "") => {
@@ -58,7 +61,7 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
   }, [en]);
 
   const resetEditor = useCallback(() => {
-    setEditing(null); setDraftOutcome(""); setDraftNote(""); setSaveMessage("");
+    setEditing(null); setDraftOutcome(""); setDraftNote(""); setDraftMeetingUrl(""); setSaveMessage("");
   }, []);
 
   const load = useCallback(async (nextOffset = 0) => {
@@ -108,12 +111,13 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
 
   const beginEdit = (lesson: Lesson) => {
     if (lesson.status === "cancelled") return;
-    setEditing(lesson.id); setDraftOutcome(lesson.outcome ?? ""); setDraftNote(lesson.follow_up_note ?? ""); setSaveMessage(""); setError("");
+    setEditing(lesson.id); setDraftOutcome(lesson.outcome ?? ""); setDraftNote(lesson.follow_up_note ?? ""); setDraftMeetingUrl(lesson.meeting_url ?? ""); setSaveMessage(""); setError("");
   };
 
   const validateDraft = () => {
     const hasNote = draftNote.length > 0;
     if ((!draftOutcome && hasNote) || (hasNote && !/\S/u.test(draftNote)) || [...draftNote].some(character => { const code = character.codePointAt(0) ?? 0; return code < 32 || (code >= 127 && code <= 159); })) return "invalid_session_outcome";
+    if (!validMeetingUrl(draftMeetingUrl === "" ? null : draftMeetingUrl)) return "invalid_meeting_url";
     return "";
   };
 
@@ -123,11 +127,11 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
     if (validationError) { setError(messageFor(validationError)); return; }
     setBusy(true); setSaveMessage(""); setError("");
     try {
-      const { response, body } = await request({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update-session", id: lesson.id, outcome: draftOutcome || null, follow_up_note: draftNote }) });
+      const { response, body } = await request({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update-session", id: lesson.id, meeting_url: draftMeetingUrl || null, outcome: draftOutcome || null, follow_up_note: draftNote }) });
       if (!response.ok) { if (response.status === 401 || response.status === 403) { setData(null); resetEditor(); } throw new Error(body.error || "save_failed"); }
       if (!body.lesson || body.lesson.id !== lesson.id) throw new Error("session_not_available");
       setData(current => current ? { ...current, lessons: current.lessons.map(item => item.id === body.lesson!.id ? body.lesson! : item) } : current);
-      setEditing(null); setDraftOutcome(""); setDraftNote(""); setSaveMessage(en ? "Session update saved." : "تم حفظ تحديث الجلسة.");
+      setEditing(null); setDraftOutcome(""); setDraftNote(""); setDraftMeetingUrl(""); setSaveMessage(en ? "Session update saved." : "تم حفظ تحديث الجلسة.");
     } catch (cause) {
       const code = cause instanceof Error ? cause.message : "save_failed";
       setError(messageFor(code)); setActivationPending(code === "teacher_profile_required");
@@ -178,14 +182,14 @@ export function TeacherWorkspace({ locale }: { locale: Locale }) {
       </section>}
 
       {!loading && data && <>
-        <section className="teacher-summary card"><div><p className="section-kicker">01 / {t("المعلّم المعيّن", "ASSIGNED TEACHER")}</p><h2>{data.teacher.display_name}</h2><p className="muted">{data.teacher.time_zone}</p></div><div className="read-only-note">{t("يمكن تحديث النتيجة والملاحظة فقط", "Outcome and note only")}</div></section>
+        <section className="teacher-summary card"><div><p className="section-kicker">01 / {t("المعلّم المعيّن", "ASSIGNED TEACHER")}</p><h2>{data.teacher.display_name}</h2><p className="muted">{data.teacher.time_zone}</p></div><div className="read-only-note">{t("يمكن تحديث النتيجة والملاحظة ورابط الاجتماع فقط", "Only outcome, note, and meeting link can be updated")}</div></section>
         <section className="lessons card" aria-labelledby="lessons-title"><div className="section-heading"><div><p className="section-kicker">02 / {t("الجدول", "SCHEDULE")}</p><h2 id="lessons-title">{t("الجلسات الفردية المعيّنة", "Assigned individual sessions")}</h2></div></div>
           {error && <p className="alert" role="alert">{error}</p>}{saveMessage && <p className="confirmation" role="status">{saveMessage}</p>}
-          {data.lessons.length === 0 ? <p className="empty-state">{t("لا توجد جلسات فردية معيّنة حاليًا.", "No assigned individual sessions at this time.")}</p> : <div className="lesson-list">{data.lessons.map(lesson => <article className="lesson-row" key={lesson.id}><div><strong>{subject(lesson.subject)}</strong><span>{formatDate(lesson.starts_at, lesson.time_zone)}</span></div><div><strong>{formatTime(lesson.starts_at, lesson.time_zone)} – {formatTime(lesson.ends_at, lesson.time_zone)}</strong><span>{lesson.time_zone}</span></div><span className={`status status-${lesson.status}`}>{status(lesson.status)}</span><div className="stored-session" aria-label={t("البيانات المسجلة", "Stored session details")}><span>{t("النتيجة", "Outcome")}: {outcome(lesson.outcome)}</span><span>{t("ملاحظة المتابعة", "Follow-up note")}: {lesson.follow_up_note ? lesson.follow_up_note : t("غير مسجلة", "Unrecorded")}</span></div>{lesson.status === "cancelled" ? <p className="read-only-session">{t("الجلسة الملغاة للقراءة فقط.", "Cancelled sessions are read-only.")}</p> : editing === lesson.id ? <form className="lesson-editor" onSubmit={event => void saveLesson(event, lesson)}><label>{t("النتيجة", "Outcome")}<select disabled={busy} value={draftOutcome} onChange={event => setDraftOutcome(event.target.value as Outcome | "")}><option value="">{t("بدون نتيجة", "No outcome")}</option><option value="attended_completed">{t("حضر وأكمل", "Attended — completed")}</option><option value="attended_incomplete">{t("حضر ولم يكمل", "Attended — incomplete")}</option><option value="absent">{t("غائب", "Absent")}</option></select></label><label>{t("ملاحظة متابعة مرئية لولي الأمر", "Follow-up note visible to the guardian")}<textarea disabled={busy} maxLength={1000} value={draftNote} onChange={event => setDraftNote([...event.target.value].slice(0, 500).join(""))} rows={4} /></label><small>{[...draftNote].length}/500</small><div className="lesson-actions"><button className="primary-button" type="submit" disabled={busy}>{busy ? t("جارٍ الحفظ…", "Saving…") : t("حفظ", "Save")}</button><button className="secondary-button" type="button" disabled={busy} onClick={() => setEditing(null)}>{t("إلغاء", "Cancel")}</button></div></form> : <button className="secondary-button edit-session" type="button" disabled={busy} onClick={() => beginEdit(lesson)}>{t("تحديث الجلسة", "Update session")}</button>}</article>)}</div>}
+          {data.lessons.length === 0 ? <p className="empty-state">{t("لا توجد جلسات فردية معيّنة حاليًا.", "No assigned individual sessions at this time.")}</p> : <div className="lesson-list">{data.lessons.map(lesson => <article className="lesson-row" key={lesson.id}><div><strong>{subject(lesson.subject)}</strong><span>{formatDate(lesson.starts_at, lesson.time_zone)}</span></div><div><strong>{formatTime(lesson.starts_at, lesson.time_zone)} – {formatTime(lesson.ends_at, lesson.time_zone)}</strong><span>{lesson.time_zone}</span></div><span className={`status status-${lesson.status}`}>{status(lesson.status)}</span><div className="stored-session" aria-label={t("البيانات المسجلة", "Stored session details")}><span>{t("النتيجة", "Outcome")}: {outcome(lesson.outcome)}</span><span>{t("ملاحظة المتابعة", "Follow-up note")}: {lesson.follow_up_note ? lesson.follow_up_note : t("غير مسجلة", "Unrecorded")}</span><span>{t("رابط الاجتماع", "Meeting link")}: {lesson.meeting_url ? <a href={lesson.meeting_url} target="_blank" rel="noopener noreferrer">{t("فتح رابط الاجتماع", "Open meeting")}</a> : t("غير مضاف", "Not set")}</span></div>{lesson.status === "cancelled" ? <p className="read-only-session">{t("الجلسة الملغاة للقراءة فقط.", "Cancelled sessions are read-only.")}</p> : editing === lesson.id ? <form className="lesson-editor" onSubmit={event => void saveLesson(event, lesson)}><label>{t("النتيجة", "Outcome")}<select disabled={busy} value={draftOutcome} onChange={event => setDraftOutcome(event.target.value as Outcome | "")}><option value="">{t("بدون نتيجة", "No outcome")}</option><option value="attended_completed">{t("حضر وأكمل", "Attended — completed")}</option><option value="attended_incomplete">{t("حضر ولم يكمل", "Attended — incomplete")}</option><option value="absent">{t("غائب", "Absent")}</option></select></label><label>{t("ملاحظة متابعة مرئية لولي الأمر", "Follow-up note visible to the guardian")}<textarea disabled={busy} maxLength={1000} value={draftNote} onChange={event => setDraftNote([...event.target.value].slice(0, 500).join(""))} rows={4} /></label><small>{[...draftNote].length}/500</small><label>{t("رابط الاجتماع (Google Meet أو Microsoft Teams أو Zoom)", "Meeting link (Google Meet, Microsoft Teams, or Zoom)")}<input disabled={busy} type="text" inputMode="url" autoComplete="off" maxLength={300} placeholder="https://meet.google.com/..." value={draftMeetingUrl} onChange={event => setDraftMeetingUrl(event.target.value)} /></label><small>{draftMeetingUrl.length}/300</small><div className="lesson-actions"><button className="primary-button" type="submit" disabled={busy}>{busy ? t("جارٍ الحفظ…", "Saving…") : t("حفظ", "Save")}</button><button className="secondary-button" type="button" disabled={busy} onClick={() => setEditing(null)}>{t("إلغاء", "Cancel")}</button></div></form> : <button className="secondary-button edit-session" type="button" disabled={busy} onClick={() => beginEdit(lesson)}>{t("تحديث الجلسة", "Update session")}</button>}</article>)}</div>}
           <div className="pagination"><button type="button" className="secondary-button" disabled={busy || offset === 0} onClick={() => void changePage(Math.max(0, offset - PAGE_SIZE))}>{t("السابق", "Previous")}</button><span aria-live="polite">{t(`صفحة ${pageLabel}`, `Page ${pageLabel}`)}</span><button type="button" className="secondary-button" disabled={busy || !data.has_more} onClick={() => void changePage(offset + PAGE_SIZE)}>{t("التالي", "Next")}</button></div>
         </section>
       </>}
-      <footer>{t("تظهر هنا الجلسات المعيّنة لهذا الحساب فقط. يمكن تحديث النتيجة وملاحظة المتابعة المرئية لولي الأمر فقط.", "Only sessions assigned to this account appear here. Teachers can update only the outcome and guardian-visible follow-up note.")}</footer>
+      <footer>{t("تظهر هنا الجلسات المعيّنة لهذا الحساب فقط. يمكن تحديث النتيجة وملاحظة المتابعة ورابط الاجتماع فقط؛ وتُفتح مواد المعلم داخل أداة الاجتماع الخارجية ولا تديرها المنصة.", "Only sessions assigned to this account appear here. Teachers can update only the outcome, follow-up note, and meeting link; teaching materials stay in the external meeting and are not managed by the platform.")}</footer>
     </div>
   </main>;
 }

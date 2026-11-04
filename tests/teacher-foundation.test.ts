@@ -9,7 +9,7 @@ const env = {
   ACADEMY_SUPABASE_ANON_KEY: "sb_publishable_mock_public_test_key_only",
 };
 const teacher = { id: uid, display_name: "Teacher", time_zone: "Asia/Riyadh", secret: "must not escape" };
-const lesson = (n = "1") => ({ id: `22222222-2222-4222-8222-${n.padStart(12, "0")}`, child_id: "33333333-3333-4333-8333-333333333333", subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", outcome: null, follow_up_note: "", private_note: "hidden" });
+const lesson = (n = "1") => ({ id: `22222222-2222-4222-8222-${n.padStart(12, "0")}`, child_id: "33333333-3333-4333-8333-333333333333", subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", meeting_url: null, outcome: null, follow_up_note: "", private_note: "hidden" });
 
 type Call = { url: string; init?: RequestInit };
 function mockFetch(responses: Array<Response | (() => Response)>): { fetchImpl: FetchLike; calls: Call[] } {
@@ -40,7 +40,7 @@ test("read verifies identity, never accepts a user-supplied teacher id, and retu
   const mock = mockFetch([json({ id: uid, email_confirmed_at: "2026-01-01T00:00:00Z", is_anonymous: false, email: "private@example.test" }), json([teacher]), json([lesson()])]);
   const result = await read("access-token", { env, fetchImpl: mock.fetchImpl });
   assert.deepEqual(result.teacher, { id: uid, display_name: "Teacher", time_zone: "Asia/Riyadh" });
-  assert.deepEqual(result.lessons, [{ id: "22222222-2222-4222-8222-000000000001", child_id: "33333333-3333-4333-8333-333333333333", subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", outcome: null, follow_up_note: "" }]);
+  assert.deepEqual(result.lessons, [{ id: "22222222-2222-4222-8222-000000000001", child_id: "33333333-3333-4333-8333-333333333333", subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", meeting_url: null, outcome: null, follow_up_note: "" }]);
   assert.equal("email" in result, false);
   assert.match(mock.calls[1].url, new RegExp(`id=eq\\.${uid}`));
   assert.doesNotMatch(mock.calls[1].url, /attacker|teacher_id/);
@@ -96,7 +96,7 @@ test("unconfirmed identities and malformed profile/lesson contracts are rejected
   for (const rows of [[teacher, teacher], [{ ...teacher, time_zone: "Not/AZone" }]]) {
     await errorCode(read("token", { env, fetchImpl: mockFetch([json(identity), json(rows)]).fetchImpl }), 503, "teacher_roster_unavailable");
   }
-  for (const patch of [{ subject: "group" }, { child_id: "fake" }, { id: "fake" }, { time_zone: "Not/AZone" }, { ends_at: lesson().starts_at }]) {
+  for (const patch of [{ subject: "group" }, { child_id: "fake" }, { id: "fake" }, { time_zone: "Not/AZone" }, { ends_at: lesson().starts_at }, { meeting_url: "https://evil.example/meet" }, { meeting_url: "https://meet.google.com" }]) {
     await errorCode(read("token", { env, fetchImpl: mockFetch([json(identity), json([teacher]), json([{ ...lesson(), ...patch }])]).fetchImpl }), 503, "teacher_roster_unavailable");
   }
 });

@@ -2,8 +2,8 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 const teacher = { id: "teacher-test", display_name: "Local test fixture", time_zone: "Africa/Cairo" };
-const pageOne = { id: "lesson-1", subject: "quran", starts_at: "2026-05-04T15:00:00+03:00", ends_at: "2026-05-04T16:00:00+03:00", time_zone: "Africa/Cairo", status: "scheduled", outcome: null, follow_up_note: "" };
-const pageTwo = { id: "lesson-2", subject: "tajweed", starts_at: "2026-05-05T15:00:00+03:00", ends_at: "2026-05-05T16:00:00+03:00", time_zone: "Africa/Cairo", status: "cancelled", outcome: null, follow_up_note: "" };
+const pageOne = { id: "lesson-1", subject: "quran", starts_at: "2026-05-04T15:00:00+03:00", ends_at: "2026-05-04T16:00:00+03:00", time_zone: "Africa/Cairo", status: "scheduled", meeting_url: null, outcome: null, follow_up_note: "" };
+const pageTwo = { id: "lesson-2", subject: "tajweed", starts_at: "2026-05-05T15:00:00+03:00", ends_at: "2026-05-05T16:00:00+03:00", time_zone: "Africa/Cairo", status: "cancelled", meeting_url: null, outcome: null, follow_up_note: "" };
 const read = (lessons = [pageOne], has_more = false, offset = 0) => ({ teacher, lessons, has_more, offset });
 
 for (const locale of ["en", "ar"] as const) {
@@ -127,7 +127,7 @@ test("local synthetic fixture: teacher can update outcome and guardian-visible n
       const body = request.postDataJSON();
       if (body.action === "login") return route.fulfill({ json: read([lesson, pageTwo]) });
       if (body.action === "update-session") {
-        lesson = { ...lesson, outcome: body.outcome, follow_up_note: body.follow_up_note };
+        lesson = { ...lesson, meeting_url: body.meeting_url, outcome: body.outcome, follow_up_note: body.follow_up_note };
         return route.fulfill({ json: { lesson } });
       }
       return route.fulfill({ json: { status: "signed_out" } });
@@ -140,9 +140,11 @@ test("local synthetic fixture: teacher can update outcome and guardian-visible n
   await expect(page.getByLabel("Follow-up note visible to the guardian")).toHaveAttribute("maxlength", "1000");
   await page.getByLabel("Outcome").selectOption("attended_completed");
   await page.getByLabel("Follow-up note visible to the guardian").fill("<b>Local synthetic note</b>");
+  await page.getByLabel("Meeting link (Google Meet, Microsoft Teams, or Zoom)").fill("https://meet.google.com/abc-defg-hij");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Session update saved");
-  expect(lesson).toMatchObject({ outcome: "attended_completed", follow_up_note: "<b>Local synthetic note</b>" });
+  expect(lesson).toMatchObject({ meeting_url: "https://meet.google.com/abc-defg-hij", outcome: "attended_completed", follow_up_note: "<b>Local synthetic note</b>" });
+  await expect(page.getByRole("link", { name: "Open meeting" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
   await expect(page.locator(".lesson-row").first()).toContainText("Attended — completed");
   await expect(page.locator(".lesson-row").first()).toContainText("<b>Local synthetic note</b>");
   await expect(page.locator(".lesson-row").first().locator("b")).toHaveCount(0);
@@ -162,7 +164,7 @@ for (const locale of ["en", "ar"] as const) {
         const body = request.postDataJSON();
         if (body.action === "login") return route.fulfill({ json: read([lesson]) });
         if (body.action === "update-session" && mode !== "ok") return route.fulfill({ status: mode === "403" ? 403 : 503, json: { error: mode === "403" ? "session_not_available" : "teacher_roster_unavailable" } });
-        if (body.action === "update-session") { lesson = { ...lesson, outcome: body.outcome, follow_up_note: body.follow_up_note }; return route.fulfill({ json: { lesson } });
+        if (body.action === "update-session") { lesson = { ...lesson, meeting_url: body.meeting_url, outcome: body.outcome, follow_up_note: body.follow_up_note }; return route.fulfill({ json: { lesson } });
         }
       }
       return route.fulfill({ json: read([lesson]) });
@@ -176,6 +178,10 @@ for (const locale of ["en", "ar"] as const) {
     mode = "503";
     await page.getByLabel(text("Follow-up note visible to the guardian", "ملاحظة متابعة مرئية لولي الأمر")).fill("valid note");
     await page.getByLabel(text("Outcome", "النتيجة")).selectOption("attended_completed");
+    await page.getByLabel(text("Meeting link (Google Meet, Microsoft Teams, or Zoom)", "رابط الاجتماع (Google Meet أو Microsoft Teams أو Zoom)")).fill("https://evil.example/meet");
+    await page.getByRole("button", { name: text("Save", "حفظ"), exact: true }).click();
+    await expect(page.locator("main.teacher-workspace").getByRole("alert")).toContainText(text("meeting link is invalid", "رابط الاجتماع غير صالح"));
+    await page.getByLabel(text("Meeting link (Google Meet, Microsoft Teams, or Zoom)", "رابط الاجتماع (Google Meet أو Microsoft Teams أو Zoom)")).fill("https://meet.google.com/abc-defg-hij");
     await page.getByRole("button", { name: text("Save", "حفظ"), exact: true }).click();
     await expect(page.getByRole("status")).toHaveCount(0);
     mode = "403";

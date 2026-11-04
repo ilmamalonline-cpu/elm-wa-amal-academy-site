@@ -3,3 +3,5 @@
 .teacher-workspace .stored-session{grid-column:1/-1;display:grid;gap:4px;padding:9px 12px;border-inline-start:3px solid #c4d5c9;color:#52665b;font-size:.88rem;line-height:1.5}.teacher-workspace .stored-session span{color:#52665b}
 
 .teacher-workspace .activation-pending{max-width:720px}.teacher-workspace .activation-pending h2{margin-bottom:12px}.teacher-workspace .activation-message{margin:0 0 18px;padding:14px 16px;border-inline-start:4px solid var(--green);border-radius:10px;background:#edf5ef;color:var(--deep);line-height:1.75}.teacher-workspace .activation-pending .secondary-button:focus{outline:3px solid #d9bd75;outline-offset:3px}
+
+.teacher-workspace .lesson-editor input{box-sizing:border-box;width:100%;border:1px solid #cfd8cf;border-radius:8px;padding:10px;background:#fff;color:var(--deep);font:inherit}.teacher-workspace .lesson-editor input:focus{outline:3px solid #d9bd75;border-color:var(--gold)}

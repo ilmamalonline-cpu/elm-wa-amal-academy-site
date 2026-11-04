@@ -481,7 +481,7 @@ for (const locale of ["ar", "en"] as const) {
         return route.fulfill({ json: { summaries: [], has_more: false } });
       }
       expect(childId).toBe(childOne.id);
-      return route.fulfill({ json: { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: childOne.id, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T10:30:00Z", time_zone: "UTC", status: "scheduled", outcome: "attended_completed", follow_up_note: note }], has_more: false } });
+      return route.fulfill({ json: { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: childOne.id, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T10:30:00Z", time_zone: "UTC", status: "scheduled", meeting_url: "https://teams.microsoft.com/l/meetup-join/abc?context=x", outcome: "attended_completed", follow_up_note: note }], has_more: false } });
     });
     await page.goto(`/${locale}/workspace`);
     const chooser = page.getByLabel(locale === "ar" ? "اختر ملف الطفل" : "Choose a child profile");
@@ -489,10 +489,12 @@ for (const locale of ["ar", "en"] as const) {
     const summaries = page.locator('section[aria-labelledby="session-summaries-heading"]');
     await expect(summaries).toContainText(locale === "ar" ? "حضر وأكمل" : "Attended — completed");
     await expect(summaries).toContainText(note);
+    await expect(summaries.getByRole("link", { name: locale === "ar" ? "فتح رابط الاجتماع" : "Open meeting" })).toHaveAttribute("href", "https://teams.microsoft.com/l/meetup-join/abc?context=x");
     await expect(summaries.locator("img")).toHaveCount(0);
     await expect(summaries).not.toContainText(/teacher_id|Teacher A/);
     await chooser.selectOption(childTwo.id);
     await expect(summaries).not.toContainText(note);
+    await expect(summaries.getByRole("link", { name: locale === "ar" ? "فتح رابط الاجتماع" : "Open meeting" })).toHaveCount(0);
     await expect.poll(() => secondRequested).toBe(true);
     release();
     await expect(summaries).toContainText(locale === "ar" ? "لا توجد ملخصات جلسات محفوظة" : "No stored session summaries");
@@ -503,7 +505,7 @@ for (const locale of ["ar", "en"] as const) {
     let unavailable = false;
     await page.route("**/api/family/session-summaries?**", route => unavailable
       ? route.fulfill({ status: 503, json: { error: "provider_unavailable" } })
-      : route.fulfill({ json: { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: childOne.id, subject: "tajweed", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T10:30:00Z", time_zone: "UTC", status: "scheduled", outcome: null, follow_up_note: "" }], has_more: false } }));
+      : route.fulfill({ json: { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: childOne.id, subject: "tajweed", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T10:30:00Z", time_zone: "UTC", status: "scheduled", meeting_url: null, outcome: null, follow_up_note: "" }], has_more: false } }));
     await page.goto(`/${locale}/workspace`);
     const chooser = page.getByLabel(locale === "ar" ? "اختر ملف الطفل" : "Choose a child profile");
     await chooser.selectOption(childOne.id);

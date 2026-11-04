@@ -4,6 +4,8 @@
  * direct imports here allow offline unit tests without a React runtime.
  */
 
+import { validMeetingUrl } from "./meeting-url";
+
 const PREVIEW_URL = "https://dyyvpcntbbwbuzskiidb.supabase.co";
 const PAGE_SIZE = 50;
 const MAX_OFFSET = 10_000;
@@ -29,6 +31,7 @@ export type TeacherLesson = {
   ends_at: string;
   time_zone: string;
   status: "scheduled" | "cancelled";
+  meeting_url: string | null;
   outcome: SessionOutcome;
   follow_up_note: string;
 };
@@ -132,7 +135,7 @@ function validateLesson(value: unknown): TeacherLesson {
       !timeZone(row.time_zone) || typeof row.starts_at !== "string" || typeof row.ends_at !== "string" ||
       !ISO_DATE.test(row.starts_at) || !ISO_DATE.test(row.ends_at) ||
       !Number.isFinite(Date.parse(row.starts_at)) || !Number.isFinite(Date.parse(row.ends_at)) ||
-      Date.parse(row.ends_at) <= Date.parse(row.starts_at) || typeof row.status !== "string" || !LESSON_STATUSES.has(row.status) || !validOutcomeFields(row.outcome, row.follow_up_note)) providerFailure();
+      Date.parse(row.ends_at) <= Date.parse(row.starts_at) || typeof row.status !== "string" || !LESSON_STATUSES.has(row.status) || !validMeetingUrl(row.meeting_url) || !validOutcomeFields(row.outcome, row.follow_up_note)) providerFailure();
   return {
     id: row.id,
     child_id: row.child_id,
@@ -141,6 +144,7 @@ function validateLesson(value: unknown): TeacherLesson {
     ends_at: row.ends_at,
     time_zone: row.time_zone,
     status: row.status as TeacherLesson["status"],
+    meeting_url: row.meeting_url as string | null,
     outcome: row.outcome as SessionOutcome,
     follow_up_note: row.follow_up_note as string,
   };
@@ -203,7 +207,7 @@ export async function read(token: string, options: TeacherReadOptions = {}): Pro
   try {
     // Keep the explicit assignment join as defense in depth, including for
     // dual-role identities and future policy changes. No revoked assignment.
-    lessonsData = await providerJson(await fetchImpl(`${base}/rest/v1/academy_individual_lessons?teacher_id=eq.${encodeURIComponent(uid)}&select=id,child_id,subject,starts_at,ends_at,time_zone,status,outcome,follow_up_note,academy_teacher_assignments!inner(status)&academy_teacher_assignments.status=eq.active&order=starts_at.asc,id.asc&limit=${PAGE_SIZE + 1}&offset=${offset}`, init));
+    lessonsData = await providerJson(await fetchImpl(`${base}/rest/v1/academy_individual_lessons?teacher_id=eq.${encodeURIComponent(uid)}&select=id,child_id,subject,starts_at,ends_at,time_zone,status,meeting_url,outcome,follow_up_note,academy_teacher_assignments!inner(status)&academy_teacher_assignments.status=eq.active&order=starts_at.asc,id.asc&limit=${PAGE_SIZE + 1}&offset=${offset}`, init));
   } catch (error) {
     if (error instanceof TeacherFoundationError) throw error;
     throw new TeacherFoundationError(503, "teacher_roster_unavailable");
@@ -218,16 +222,18 @@ export const TEACHER_FOUNDATION_CONFIG = { previewUrl: PREVIEW_URL, pageSize: PA
 
 /** Strict body allowlist plus database column privileges and UPDATE RLS. */
 export async function updateSession(token: string, body: Record<string, unknown>, options: TeacherReadOptions = {}): Promise<TeacherLesson> {
-  if (Object.keys(body).sort().join(",") !== "action,follow_up_note,id,outcome" || body.action !== "update-session" ||
-      typeof body.id !== "string" || !UUID.test(body.id) || !validOutcomeFields(body.outcome, body.follow_up_note)) {
+  if (Object.keys(body).sort().join(",") !== "action,follow_up_note,id,meeting_url,outcome" || body.action !== "update-session" ||
+      typeof body.id !== "string" || !UUID.test(body.id)) {
     throw new TeacherFoundationError(400, "invalid_session_outcome");
   }
+  if (!validMeetingUrl(body.meeting_url)) throw new TeacherFoundationError(400, "invalid_meeting_url");
+  if (!validOutcomeFields(body.outcome, body.follow_up_note)) throw new TeacherFoundationError(400, "invalid_session_outcome");
   const { uid, init, base, fetchImpl } = await authenticatedTeacher(token, options);
   let response: Response;
   try {
-    response = await fetchImpl(`${base}/rest/v1/academy_individual_lessons?id=eq.${body.id}&teacher_id=eq.${uid}&status=eq.scheduled&select=id,child_id,subject,starts_at,ends_at,time_zone,status,outcome,follow_up_note`, {
+    response = await fetchImpl(`${base}/rest/v1/academy_individual_lessons?id=eq.${body.id}&teacher_id=eq.${uid}&status=eq.scheduled&select=id,child_id,subject,starts_at,ends_at,time_zone,status,meeting_url,outcome,follow_up_note`, {
       ...init, method: "PATCH", headers: { ...init.headers, "Content-Type": "application/json", Prefer: "return=representation" },
-      body: JSON.stringify({ outcome: body.outcome, follow_up_note: body.follow_up_note }),
+      body: JSON.stringify({ meeting_url: body.meeting_url, outcome: body.outcome, follow_up_note: body.follow_up_note }),
     });
   } catch { return providerFailure(); }
   if (response.status === 401) throw new TeacherFoundationError(401, "authentication_required");
@@ -238,6 +244,6 @@ export async function updateSession(token: string, body: Record<string, unknown>
   if (rows.length === 0) throw new TeacherFoundationError(403, "session_not_available");
   if (rows.length !== 1) return providerFailure();
   const lesson = validateLesson(rows[0]);
-  if (lesson.id !== body.id || lesson.status !== "scheduled" || lesson.outcome !== body.outcome || lesson.follow_up_note !== body.follow_up_note) return providerFailure();
+  if (lesson.id !== body.id || lesson.status !== "scheduled" || lesson.meeting_url !== body.meeting_url || lesson.outcome !== body.outcome || lesson.follow_up_note !== body.follow_up_note) return providerFailure();
   return lesson;
 }
