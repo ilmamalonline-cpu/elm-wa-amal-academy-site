@@ -41,6 +41,12 @@ Old Supabase `vbulxdnfknoybdkuhayz`, main, Production, Auth providers/URLs/SMTP,
 
 Hosted verification reads schema/privilege metadata and empty teacher/session table counts only, plus unauthenticated route denials. A real successful teacher login/edit is intentionally not claimed: no approved teacher is provisioned in the hosted project.
 
+## Admin authorization foundation — code only
+
+`db/teacher-admin-foundation.sql` is an unapplied migration draft for an `academy_admins` allowlist keyed by Auth user UUID. The table has forced RLS, no browser-role privileges, no client policies, and a read policy limited to `service_role`; the migration creates no admin row. `src/lib/academy/teacher-admin.ts` is server-only: it verifies the caller through Auth, then checks the allowlist with a server credential and returns only the verified admin ID. It exposes no invitation, teacher provisioning, assignment, lesson, or payment operation.
+
+The check is disabled unless `ACADEMY_TEACHER_ADMIN_PREVIEW_ENABLED=1` is explicitly set on the exact Preview branch and project. No such flag or service credential has been configured. Production and other branches fail closed. The migration has not been applied to any hosted Supabase project; public signup remains closed, and no owner UUID or admin row has been added.
+
 ## Next provisioning decision
 
 A separately approved real administrative provisioning workflow must exist before adding any adult teacher, child assignment or timetable. A password set by an invitee alone does not activate a teacher account. This update does not authorize sending an invitation, provisioning a profile, creating an assignment or timetable, or Production rollout.
