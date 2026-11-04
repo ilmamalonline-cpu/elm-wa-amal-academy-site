@@ -83,11 +83,10 @@ for (const locale of locales) {
         expect(text).not.toMatch(/نور البيان|Noor Al-Bayan|التجويد|Tajweed/);
       if (index === 2) {
         expect(text).toContain(t.upTo);
-        expect(pack.features.join(" ")).not.toMatch(/معاني|meanings/);
-        await expect(card.locator(".feature-excluded")).toHaveCount(1);
-        await expect(card.locator(".feature-excluded")).toContainText(
-          t.notIncludedLabel,
-        );
+        expect(pack.features.join(" ")).toMatch(/معاني|meanings/);
+        expect(pack.features.join(" ")).toMatch(/المخارج|articulation/);
+        expect(pack.features.join(" ")).toMatch(/السيرة النبوية|Prophetic biography/);
+        await expect(card.locator(".feature-excluded")).toHaveCount(0);
       } else {
         await expect(card.locator(".feature-excluded")).toHaveCount(0);
       }

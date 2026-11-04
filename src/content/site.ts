@@ -192,8 +192,16 @@ export const site = {
         price: 650,
         duration: 90,
         upTo: true,
-        features: ["8 حصص", "تحفيظ القرآن", "نور البيان", "التجويد"],
-        notIncluded: ["الفهم العام لمعاني الآيات"],
+        features: [
+          "8 حصص",
+          "تحفيظ القرآن",
+          "نور البيان",
+          "التجويد",
+          "الفهم العام لمعاني الآيات",
+          "ضبط المخارج",
+          "السيرة النبوية",
+        ],
+        notIncluded: [],
       },
     ],
     packageNote:
@@ -235,7 +243,7 @@ export const site = {
       {
         question: "هل تشمل باقة 650 فهم معاني الآيات؟",
         answer:
-          "لا نضيف هذا الوعد إلى باقة 650. تشمل تحفيظ القرآن ونور البيان والتجويد، وتحدد مدة الموعد الفعلية حتى 90 دقيقة.",
+          "نعم. تشمل باقة 650 الفهم العام لمعاني الآيات وضبط المخارج والسيرة النبوية، إلى جانب تحفيظ القرآن ونور البيان والتجويد. مدة الحصة حتى 90 دقيقة بحسب الموعد الفعلي.",
       },
       {
         question: "هل الأسعار المعروضة هي مبلغ التحويل؟",
@@ -447,8 +455,11 @@ export const site = {
           "Quran memorization",
           "Noor Al-Bayan",
           "Tajweed",
+          "General understanding of verse meanings",
+          "Correct articulation points (makharij)",
+          "Prophetic biography (Seerah)",
         ],
-        notIncluded: ["General understanding of verse meanings"],
+        notIncluded: [],
       },
     ],
     packageNote:
@@ -490,7 +501,7 @@ export const site = {
       {
         question: "Does the 650 SAR package include verse-meaning instruction?",
         answer:
-          "We do not add that promise to the 650 SAR package. It includes Quran memorization, Noor Al-Bayan, and Tajweed, with an appointment scheduled for up to 90 minutes.",
+          "Yes. The 650 SAR package includes general understanding of verse meanings, correct articulation points (makharij), and the Prophetic biography (Seerah), alongside Quran memorization, Noor Al-Bayan, and Tajweed. Each lesson is up to 90 minutes, depending on the actual appointment.",
       },
       {
         question: "Are the listed prices transfer amounts?",
