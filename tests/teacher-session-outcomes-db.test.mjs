@@ -67,6 +67,12 @@ test('meeting migration requires postgres, pins the guardian RPC owner, and adds
   } finally {
     unprivileged.release();
   }
+  await h.admin.query('CREATE ROLE service_role NOLOGIN');
+  await h.admin.query('GRANT USAGE ON SCHEMA public TO service_role');
+  await h.admin.query('ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role');
+  await queryAsPostgres("CREATE FUNCTION public.academy_acl_default_probe() RETURNS integer LANGUAGE sql AS 'SELECT 1'");
+  assert.equal((await h.admin.query("SELECT has_function_privilege('service_role', 'public.academy_acl_default_probe()', 'EXECUTE') AS allowed")).rows[0].allowed, true);
+  await queryAsPostgres('DROP FUNCTION public.academy_acl_default_probe()');
   await queryAsPostgres(meetingMigration);
 
   const p = (await h.admin.query(`SELECT
@@ -86,11 +92,49 @@ test('meeting migration requires postgres, pins the guardian RPC owner, and adds
     p.proconfig,
     EXISTS (SELECT FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
       WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE') AS public_exec,
+    COALESCE((
+      SELECT array_agg(
+        CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END || ':' || a.privilege_type
+        ORDER BY a.grantee, a.privilege_type
+      )
+      FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+      WHERE a.grantee <> p.proowner
+    ), ARRAY[]::text[]) AS non_owner_acl,
     has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_exec,
+    has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role_exec,
     has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated_exec
     FROM pg_proc p
     WHERE p.oid='public.academy_guardian_session_summaries(uuid,integer)'::regprocedure`)).rows[0];
-  assert.deepEqual(security, { owner: 'postgres', prosecdef: true, proconfig: ['search_path=pg_catalog'], public_exec: false, anon_exec: false, authenticated_exec: true });
+  assert.deepEqual(security, { owner: 'postgres', prosecdef: true, proconfig: ['search_path=pg_catalog'], public_exec: false, non_owner_acl: ['authenticated:EXECUTE'], anon_exec: false, service_role_exec: false, authenticated_exec: true });
+  const serviceRole = await h.admin.connect();
+  try {
+    await serviceRole.query('BEGIN');
+    await serviceRole.query('SET LOCAL ROLE service_role');
+    await assert.rejects(
+      () => serviceRole.query('SELECT * FROM public.academy_guardian_session_summaries($1)', [h.ids.childA]),
+      /permission denied for function academy_guardian_session_summaries/,
+    );
+  } finally {
+    await serviceRole.query('ROLLBACK').catch(() => {});
+    serviceRole.release();
+  }
+  const triggerAcl = (await h.admin.query(`SELECT
+    pg_get_userbyid(p.proowner) AS owner,
+    COALESCE((
+      SELECT array_agg(
+        CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END || ':' || a.privilege_type
+        ORDER BY a.grantee, a.privilege_type
+      )
+      FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+      WHERE a.grantee <> p.proowner
+    ), ARRAY[]::text[]) AS non_owner_acl,
+    has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_exec,
+    has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated_exec,
+    has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role_exec
+    FROM pg_proc p
+    WHERE p.oid='public.academy_individual_lesson_clear_cancelled_meeting_url()'::regprocedure
+    `)).rows[0];
+  assert.deepEqual(triggerAcl, { owner: 'postgres', non_owner_acl: [], anon_exec: false, authenticated_exec: false, service_role_exec: false });
   const forcedRls = (await h.admin.query(`SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
     FROM pg_class c
     WHERE c.oid IN ('public.academy_children'::regclass, 'public.academy_individual_lessons'::regclass)

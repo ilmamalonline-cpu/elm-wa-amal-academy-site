@@ -38,7 +38,7 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.academy_individual_lesson_clear_cancelled_meeting_url()
-  FROM PUBLIC, anon, authenticated;
+  FROM PUBLIC, anon, authenticated, service_role;
 CREATE TRIGGER academy_individual_lesson_clear_cancelled_meeting_url
   BEFORE INSERT OR UPDATE OF status, meeting_url
   ON public.academy_individual_lessons
@@ -115,7 +115,7 @@ $$;
 ALTER FUNCTION public.academy_guardian_session_summaries(uuid, integer)
   OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.academy_guardian_session_summaries(uuid, integer)
-  FROM PUBLIC, anon, authenticated;
+  FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.academy_guardian_session_summaries(uuid, integer)
   TO authenticated;
 
