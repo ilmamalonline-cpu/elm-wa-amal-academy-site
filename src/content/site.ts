@@ -17,6 +17,9 @@ export const pageKeys = [
 
 export type PageKey = (typeof pageKeys)[number];
 
+/** Owner-provided WhatsApp contact link; the single external contact channel. */
+export const whatsappUrl = "https://wa.link/lhspfv";
+
 export type SiteCopy = {
   brand: string;
   brandSubtitle: string;
@@ -52,6 +55,7 @@ export type SiteCopy = {
   lessons: string;
   minutes: string;
   upTo: string;
+  notIncludedLabel: string;
   packageCta: string;
   packages: Array<{
     id: string;
@@ -59,7 +63,9 @@ export type SiteCopy = {
     price: number;
     duration: number;
     upTo: boolean;
+    featured?: boolean;
     features: string[];
+    notIncluded?: string[];
   }>;
   packageNote: string;
   learningIntro: string;
@@ -72,7 +78,6 @@ export type SiteCopy = {
     description: string;
     status: string;
     notice: string;
-    phoneLabel: string;
     whatsappLabel: string;
   };
   privacy: {
@@ -156,7 +161,8 @@ export const site = {
     lessons: "حصص",
     minutes: "دقيقة للحصة",
     upTo: "حتى",
-    packageCta: "حالة التواصل",
+    notIncludedLabel: "غير متضمن",
+    packageCta: "اطلب الباقة عبر واتساب",
     packages: [
       {
         id: "quran",
@@ -168,6 +174,7 @@ export const site = {
       },
       {
         id: "quran-noor",
+        featured: true,
         title: "تحفيظ + نور البيان",
         price: 500,
         duration: 60,
@@ -186,10 +193,11 @@ export const site = {
         duration: 90,
         upTo: true,
         features: ["8 حصص", "تحفيظ القرآن", "نور البيان", "التجويد"],
+        notIncluded: ["الفهم العام لمعاني الآيات"],
       },
     ],
     packageNote:
-      "مدة باقة 650 تصل إلى 90 دقيقة بحسب الموعد الفعلي، ولا تتضمن وعدًا إضافيًا بمعاني الآيات. الأسعار المعلنة بالريال السعودي وليست تعليمات تحويل أو مبلغًا محليًا تلقائيًا.",
+      "مدة الحصة في باقة 650 تصل إلى 90 دقيقة بحسب الموعد الفعلي. الأسعار شهرية وبالريال السعودي.",
     learningIntro:
       "من التقييم إلى المعلم والخطة والحصة والتقييم والواجب والتقدم: هذا هو سير العمل التعليمي المقترح. المعاينة المحلية اصطناعية فقط، ولا تجمع بيانات حقيقية أو تفعّل خدمات خارجية.",
     steps: [
@@ -253,12 +261,11 @@ export const site = {
     contact: {
       title: "تواصل معنا",
       description:
-        "قناة خارجية غير متاحة للتحقق في هذه المعاينة. راجع الأسئلة الشائعة والباقات أو افتح المعاينة المحلية بدل إرسال بيانات شخصية.",
-      status: "قناة خارجية غير متاحة للتحقق",
+        "للاستفسار عن الباقات وطلب الاشتراك، راسلنا عبر واتساب.",
+      status: "التواصل عبر واتساب",
       notice:
-        "قنوات التواصل الخارجية لم تُتحقق بعد، لذلك لا ننشر رقم محفظة أو وجهة دفع أو تعليمات تحويل.",
-      phoneLabel: "لا ننشر رقمًا عامًا في هذه المعاينة",
-      whatsappLabel: "لا يوجد رابط تواصل موثق",
+        "لا تُنشر في هذه الصفحة أرقام محافظ أو وجهات دفع أو تعليمات تحويل.",
+      whatsappLabel: "راسلنا على واتساب",
     },
     privacy: {
       intro:
@@ -400,7 +407,8 @@ export const site = {
     lessons: "lessons",
     minutes: "minutes per lesson",
     upTo: "up to",
-    packageCta: "Contact availability",
+    notIncludedLabel: "Not included",
+    packageCta: "Request via WhatsApp",
     packages: [
       {
         id: "quran",
@@ -416,6 +424,7 @@ export const site = {
       },
       {
         id: "quran-noor",
+        featured: true,
         title: "Memorization + Noor Al-Bayan",
         price: 500,
         duration: 60,
@@ -439,10 +448,11 @@ export const site = {
           "Noor Al-Bayan",
           "Tajweed",
         ],
+        notIncluded: ["General understanding of verse meanings"],
       },
     ],
     packageNote:
-      "The 650 SAR package is scheduled for up to 90 minutes according to the actual appointment and does not promise additional verse-meaning instruction. Listed prices are in SAR, not automatic local transfer amounts or payment instructions.",
+      "In the 650 SAR package each lesson runs up to 90 minutes depending on the actual appointment. Prices are monthly and in SAR.",
     learningIntro:
       "Assessment → teacher → individual plan → lesson → evaluation → homework → progress. The local preview is synthetic only; it does not collect real data or activate external services.",
     steps: [
@@ -506,12 +516,11 @@ export const site = {
     contact: {
       title: "Contact us",
       description:
-        "An external contact channel is unavailable for verification in this preview. Review the FAQ and packages, or open the local demo instead of sending personal details.",
-      status: "External channel unavailable for verification",
+        "To ask about packages or request a subscription, message us on WhatsApp.",
+      status: "Contact via WhatsApp",
       notice:
-        "These details are for contact only. They are not an approved wallet number, a verified payment destination, or transfer instructions.",
-      phoneLabel: "No public number is published in this preview",
-      whatsappLabel: "No verified contact link is available",
+        "No wallet numbers, payment destinations, or transfer instructions are published on this page.",
+      whatsappLabel: "Message us on WhatsApp",
     },
     privacy: {
       intro:

@@ -43,7 +43,7 @@ for (const locale of locales) {
       expect(links.length).toBeGreaterThan(5);
       for (const href of links) {
         if (
-          key === "contact" &&
+          (key === "contact" || key === "packages") &&
           (/^tel:\+?[0-9]+$/.test(href ?? "") || href === "https://wa.link/lhspfv")
         ) continue;
         expect(href).toMatch(/^(\/(ar|en)(\/|$)|#main-content$)/);
@@ -74,12 +74,22 @@ for (const locale of locales) {
       await expect(card).toContainText(`${pack.duration} ${t.minutes}`);
       for (const feature of pack.features)
         await expect(card).toContainText(feature);
+      const whatsapp = card.locator('a[href="https://wa.link/lhspfv"]');
+      await expect(whatsapp).toHaveCount(1);
+      await expect(whatsapp).toHaveAttribute("target", "_blank");
+      await expect(whatsapp).toHaveAttribute("rel", /noopener/);
       const text = await card.innerText();
       if (index === 0)
         expect(text).not.toMatch(/نور البيان|Noor Al-Bayan|التجويد|Tajweed/);
       if (index === 2) {
         expect(text).toContain(t.upTo);
-        expect(text).not.toMatch(/معاني|meanings/);
+        expect(pack.features.join(" ")).not.toMatch(/معاني|meanings/);
+        await expect(card.locator(".feature-excluded")).toHaveCount(1);
+        await expect(card.locator(".feature-excluded")).toContainText(
+          t.notIncludedLabel,
+        );
+      } else {
+        await expect(card.locator(".feature-excluded")).toHaveCount(0);
       }
     }
   });
@@ -119,7 +129,7 @@ for (const locale of locales) {
     ).toBeVisible();
   });
 
-  test(`${locale}: external contact remains gated and policy draft visible`, async ({
+  test(`${locale}: WhatsApp is the only external channel and policy draft visible`, async ({
     page,
   }) => {
     await page.goto(`/${locale}/contact`);
@@ -130,7 +140,11 @@ for (const locale of locales) {
       page.getByText(t.contact.notice, { exact: true }),
     ).toBeVisible();
     await expect(page.locator("body")).not.toContainText(/01[0125][0-9]{8}/);
-    await expect(page.locator('a[href^="tel:"],a[href*="wa.link"]')).toHaveCount(0);
+    const whatsapp = page.locator('a[href="https://wa.link/lhspfv"]');
+    await expect(whatsapp).toHaveCount(1);
+    await expect(whatsapp).toHaveAttribute("target", "_blank");
+    await expect(whatsapp).toHaveAttribute("rel", /noopener/);
+    await expect(page.locator('a[href^="tel:"]')).toHaveCount(0);
     await expect(page.getByRole("banner").getByRole("link", { name: t.demoLink, exact: true })).toBeVisible();
     for (const width of [320, 768]) {
       await page.setViewportSize({ width, height: 900 });

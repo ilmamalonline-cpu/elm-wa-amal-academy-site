@@ -572,6 +572,10 @@ summary {
 .feature-list li::marker {
   color: #97732c;
 }
+.feature-list li.feature-excluded::marker {
+  content: "– ";
+  color: var(--muted);
+}
 .package-card .button {
   justify-content: space-between;
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { site, type Locale, type PageKey } from "@/content/site";
+import { site, whatsappUrl, type Locale, type PageKey } from "@/content/site";
 import { route } from "@/lib/routes";
 
 export function SectionTitle({
@@ -43,7 +43,7 @@ export function PackageCards({ locale }: { locale: Locale }) {
       <div className="card-grid package-grid">
         {t.packages.map((pack, i) => (
           <article
-            className={`package-card ${i === 1 ? "package-accent" : ""}`}
+            className={`package-card ${pack.featured ? "package-accent" : ""}`}
             key={pack.id}
             data-package={pack.id}
           >
@@ -65,14 +65,22 @@ export function PackageCards({ locale }: { locale: Locale }) {
               {pack.features.map((feature) => (
                 <li key={feature}>{feature}</li>
               ))}
+              {pack.notIncluded?.map((item) => (
+                <li className="feature-excluded" key={item}>
+                  {t.notIncludedLabel}: {item}
+                </li>
+              ))}
             </ul>
-            <Link
+            <a
               className="button button-outline-dark"
-              href={route(locale, "contact")}
+              href={whatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`${t.packageCta}: ${pack.title}`}
             >
               {t.packageCta}
               <span aria-hidden="true">↗</span>
-            </Link>
+            </a>
           </article>
         ))}
       </div>
@@ -177,7 +185,7 @@ export function PublicPage({
             <div className="contact-panel">
               <span className="status-label">{t.contact.status}</span>
               <h2>{t.contact.title}</h2>
-              <p>{t.contact.phoneLabel}</p><p>{t.contact.whatsappLabel}</p>
+              <p><a className="button" href={whatsappUrl} target="_blank" rel="noopener noreferrer">{t.contact.whatsappLabel}<span aria-hidden="true">↗</span></a></p>
               <p>{t.contact.notice}</p>
               <p><Link className="text-link" href={route(locale, "faq")}>{t.nav.faq}</Link> · <Link className="text-link" href={route(locale, "packages")}>{t.nav.packages}</Link> · <Link className="text-link" href={`/${locale}/workspace`}>{t.demoLink}</Link></p>
             </div>
