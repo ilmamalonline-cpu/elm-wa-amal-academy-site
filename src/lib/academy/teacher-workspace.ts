@@ -43,7 +43,7 @@ export function teacherCookie(token: string, maxAge: number, host: string | null
   return `${TEACHER_COOKIE}=${token}; Path=/api/teacher; HttpOnly; SameSite=Strict;${host === HOST ? " Secure;" : ""} Max-Age=${maxAge}`;
 }
 export function teacherPublicLesson({ id, subject, starts_at, ends_at, time_zone, status, meeting_url, outcome, follow_up_note }: TeacherFoundationResult["lessons"][number]) {
-  return { id, subject, starts_at, ends_at, time_zone, status, meeting_url, outcome, follow_up_note };
+  return { id, subject, starts_at, ends_at, time_zone, status, meeting_url: status === "cancelled" ? null : meeting_url, outcome, follow_up_note };
 }
 export function teacherPublicData(result: TeacherFoundationResult) {
   return {

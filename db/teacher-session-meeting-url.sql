@@ -7,6 +7,34 @@ SET LOCAL search_path = public, extensions, pg_catalog;
 ALTER TABLE public.academy_individual_lessons
   ADD COLUMN meeting_url text;
 
+-- Clean up any legacy cancelled rows before enforcing the invariant. This runs
+-- only if an owner later approves and applies this draft migration.
+UPDATE public.academy_individual_lessons
+SET meeting_url = NULL
+WHERE status = 'cancelled' AND meeting_url IS NOT NULL;
+
+-- Cancellation clears the link in the same row update. The CHECK below is a
+-- second line of defense against any path that bypasses this trigger.
+CREATE FUNCTION public.academy_individual_lesson_clear_cancelled_meeting_url()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF NEW.status = 'cancelled' THEN
+    NEW.meeting_url := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.academy_individual_lesson_clear_cancelled_meeting_url()
+  FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER academy_individual_lesson_clear_cancelled_meeting_url
+  BEFORE INSERT OR UPDATE OF status, meeting_url
+  ON public.academy_individual_lessons
+  FOR EACH ROW
+  EXECUTE FUNCTION public.academy_individual_lesson_clear_cancelled_meeting_url();
+
 ALTER TABLE public.academy_individual_lessons
   ADD CONSTRAINT academy_individual_lessons_meeting_url_check
   CHECK (
@@ -15,7 +43,9 @@ ALTER TABLE public.academy_individual_lessons
       AND meeting_url ~ '^https://(meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)?zoom\.us)/[A-Za-z0-9._~!$&''()*+,;=:@%/-]+(\?[A-Za-z0-9._~!$&''()*+,;=:@%/?-]*)?(#[A-Za-z0-9._~!$&''()*+,;=:@%/?-]*)?$'
       AND meeting_url !~ '%([^0-9A-Fa-f]|$)|%[0-9A-Fa-f]([^0-9A-Fa-f]|$)'
     )
-  );
+  ),
+  ADD CONSTRAINT academy_individual_lessons_cancelled_meeting_url_check
+  CHECK (status <> 'cancelled' OR meeting_url IS NULL);
 
 COMMENT ON COLUMN public.academy_individual_lessons.meeting_url IS
   'External HTTPS meeting link; teachers use their own Quran/Tajweed/Nur al-Bayan materials in the meeting. The platform does not import or manage those materials.';
@@ -58,7 +88,9 @@ BEGIN
 
   RETURN QUERY
   SELECT l.id, l.child_id, l.subject, l.starts_at, l.ends_at, l.time_zone,
-         l.status, l.meeting_url, l.outcome, l.follow_up_note
+         l.status,
+         CASE WHEN l.status = 'cancelled' THEN NULL ELSE l.meeting_url END,
+         l.outcome, l.follow_up_note
   FROM public.academy_individual_lessons l
   JOIN public.academy_children c ON c.id = l.child_id
     AND c.guardian_id = (SELECT auth.uid())

@@ -2,9 +2,10 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 const teacher = { id: "teacher-test", display_name: "Local test fixture", time_zone: "Africa/Cairo" };
-const pageOne = { id: "lesson-1", subject: "quran", starts_at: "2026-05-04T15:00:00+03:00", ends_at: "2026-05-04T16:00:00+03:00", time_zone: "Africa/Cairo", status: "scheduled", meeting_url: null, outcome: null, follow_up_note: "" };
-const pageTwo = { id: "lesson-2", subject: "tajweed", starts_at: "2026-05-05T15:00:00+03:00", ends_at: "2026-05-05T16:00:00+03:00", time_zone: "Africa/Cairo", status: "cancelled", meeting_url: null, outcome: null, follow_up_note: "" };
-const read = (lessons = [pageOne], has_more = false, offset = 0) => ({ teacher, lessons, has_more, offset });
+type LessonFixture = { id: string; subject: string; starts_at: string; ends_at: string; time_zone: string; status: "scheduled" | "cancelled"; meeting_url: string | null; outcome: string | null; follow_up_note: string };
+const pageOne: LessonFixture = { id: "lesson-1", subject: "quran", starts_at: "2026-05-04T15:00:00+03:00", ends_at: "2026-05-04T16:00:00+03:00", time_zone: "Africa/Cairo", status: "scheduled", meeting_url: null, outcome: null, follow_up_note: "" };
+const pageTwo: LessonFixture = { id: "lesson-2", subject: "tajweed", starts_at: "2026-05-05T15:00:00+03:00", ends_at: "2026-05-05T16:00:00+03:00", time_zone: "Africa/Cairo", status: "cancelled", meeting_url: "https://meet.google.com/stale-cancelled-link", outcome: null, follow_up_note: "" };
+const read = (lessons: LessonFixture[] = [pageOne], has_more = false, offset = 0) => ({ teacher, lessons, has_more, offset });
 
 for (const locale of ["en", "ar"] as const) {
   test(`${locale}: approved teacher can sign in, read pages, sign out, and has no storage or overflow`, async ({ page }) => {
@@ -33,6 +34,7 @@ for (const locale of ["en", "ar"] as const) {
     await expect(page.locator(".lesson-row")).not.toContainText("child");
     await page.getByRole("button", { name: text("Next", "التالي"), exact: true }).click();
     await expect(page.locator(".lesson-row")).toContainText(text("Tajweed", "التجويد"));
+    await expect(page.locator(".lesson-row .stored-session a")).toHaveCount(0);
     await page.getByRole("button", { name: text("Sign out", "تسجيل الخروج"), exact: true }).click();
     await expect(page.getByRole("heading", { name: text("Teacher sign in", "دخول المعلم") })).toBeVisible();
     expect(posts).toEqual(["login", "logout"]);
@@ -152,6 +154,7 @@ test("local synthetic fixture: teacher can update outcome and guardian-visible n
   await expect(page.locator(".lesson-row").first()).toContainText("<b>Local synthetic note</b>");
   await expect(page.locator(".lesson-row").nth(1)).toContainText("Cancelled sessions are read-only");
   await expect(page.locator(".lesson-row").nth(1)).toContainText("Unrecorded");
+  await expect(page.locator(".lesson-row").nth(1).locator(".stored-session a")).toHaveCount(0);
 });
 
 for (const locale of ["en", "ar"] as const) {

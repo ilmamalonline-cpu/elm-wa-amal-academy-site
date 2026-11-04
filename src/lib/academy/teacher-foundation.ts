@@ -144,7 +144,7 @@ function validateLesson(value: unknown): TeacherLesson {
     ends_at: row.ends_at,
     time_zone: row.time_zone,
     status: row.status as TeacherLesson["status"],
-    meeting_url: row.meeting_url as string | null,
+    meeting_url: row.status === "cancelled" ? null : row.meeting_url as string | null,
     outcome: row.outcome as SessionOutcome,
     follow_up_note: row.follow_up_note as string,
   };

@@ -51,6 +51,14 @@ test("read verifies identity, never accepts a user-supplied teacher id, and retu
   for (const call of mock.calls) { assert.equal(call.init?.method, "GET"); assert.equal(call.init?.cache, "no-store"); assert.equal(call.init?.redirect, "error"); assert.equal((call.init?.headers as Record<string, string>).Authorization, "Bearer access-token"); }
 });
 
+test("teacher adapter clears a stale meeting URL returned for a cancelled lesson", async () => {
+  const cancelled = { ...lesson(), status: "cancelled", meeting_url: "https://meet.google.com/abc-defg-hij" };
+  const mock = mockFetch([json({ id: uid, email_confirmed_at: "2026-01-01T00:00:00Z", is_anonymous: false }), json([teacher]), json([cancelled])]);
+  const result = await read("access-token", { env, fetchImpl: mock.fetchImpl });
+  assert.equal(result.lessons[0].status, "cancelled");
+  assert.equal(result.lessons[0].meeting_url, null);
+});
+
 test("anonymous, inactive/missing profiles, malformed data and provider failures are denied generically", async () => {
   await errorCode(read("token", { env, fetchImpl: mockFetch([json({ id: uid, is_anonymous: true })]).fetchImpl }), 401, "authentication_required");
   await errorCode(read("token", { env, fetchImpl: mockFetch([json({ id: uid, is_anonymous: false, email_confirmed_at: "2026-01-01T00:00:00Z" }), json([])]).fetchImpl }), 403, "teacher_profile_required");

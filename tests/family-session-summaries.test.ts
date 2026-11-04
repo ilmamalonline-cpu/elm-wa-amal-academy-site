@@ -35,6 +35,12 @@ test("returns only allowlisted stored summaries and bounded pagination", async (
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "Asia/Riyadh", status: "scheduled", meeting_url: "https://meet.google.com/abc-defg-hij", outcome: null, follow_up_note: "" }], has_more: false, next_offset: null });
 });
+test("guardian adapter returns NULL for a cancelled lesson even if its RPC row has a meeting URL", async () => {
+  setup([{ id: "44444444-4444-4444-8444-444444444444", child_id: child, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T11:00:00Z", time_zone: "UTC", status: "cancelled", meeting_url: "https://meet.google.com/abc-defg-hij", outcome: null, follow_up_note: "" }]);
+  const response = await GET(request());
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).summaries[0].meeting_url, null);
+});
 test("fails closed for unsigned, invalid pagination, and malformed outcome", async () => {
   setup();
   assert.equal((await GET(request(child, "0", ""))).status, 401);

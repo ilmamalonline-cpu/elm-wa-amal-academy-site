@@ -82,6 +82,22 @@ test('immutable identity and schedule columns, multi-field payloads, and cancell
   assert.equal((await updateMeeting(teacherB, ownLesson)).rowCount, 0);
 });
 
+test('cancelling a lesson with an existing meeting URL clears it atomically and prevents it from returning', async () => {
+  const url = 'https://meet.google.com/abc-defg-hij';
+  await h.admin.query("UPDATE public.academy_individual_lessons SET status='scheduled' WHERE id=$1", [cancelledLesson]);
+  await h.admin.query('UPDATE public.academy_individual_lessons SET meeting_url=$1 WHERE id=$2', [url, cancelledLesson]);
+  const cancelled = await h.admin.query("UPDATE public.academy_individual_lessons SET status='cancelled' WHERE id=$1 RETURNING status,meeting_url", [cancelledLesson]);
+  assert.deepEqual(cancelled.rows[0], { status: 'cancelled', meeting_url: null });
+  assert.equal((await h.as(teacherA, 'SELECT meeting_url FROM public.academy_individual_lessons WHERE id=$1', [cancelledLesson])).rows[0].meeting_url, null);
+  const staleWrite = await h.admin.query('UPDATE public.academy_individual_lessons SET meeting_url=$1 WHERE id=$2 RETURNING meeting_url', [url, cancelledLesson]);
+  assert.equal(staleWrite.rows[0].meeting_url, null);
+  assert.equal((await h.as(h.ids.guardianA, 'SELECT meeting_url FROM public.academy_guardian_session_summaries($1) WHERE id=$2', [h.ids.childA, cancelledLesson])).rows[0].meeting_url, null);
+  const invariant = await h.admin.query("SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='public.academy_individual_lessons'::regclass AND conname='academy_individual_lessons_cancelled_meeting_url_check'");
+  assert.equal(invariant.rowCount, 1);
+  assert.match(invariant.rows[0].definition, /cancelled/);
+  assert.match(invariant.rows[0].definition, /meeting_url IS NULL/i);
+});
+
 test('outcome and note constraints enforce enum, dependencies, Unicode, controls, and whitespace rules', async () => {
   const cases = [
     ['outcome=$1,follow_up_note=$2', ['unknown', '']],
@@ -113,6 +129,8 @@ test('guardian raw table is empty, RPC returns only permitted own-child summary,
   assert.deepEqual(Object.keys(rows[0]).sort(), ['child_id','ends_at','follow_up_note','id','meeting_url','outcome','starts_at','status','subject','time_zone'].sort());
   assert.equal(rows[0].id, ownLesson);
   assert.ok(rows[0].meeting_url);
+  assert.equal(rows[1].id, cancelledLesson);
+  assert.equal(rows[1].meeting_url, null);
   assert.equal((await h.as(h.ids.guardianA, 'SELECT * FROM public.academy_guardian_session_summaries($1)', [childB])).rowCount, 0);
   await assert.rejects(() => h.anon('SELECT * FROM public.academy_guardian_session_summaries($1)', [h.ids.childA]), /permission denied/);
   assert.equal((await h.as(null, 'SELECT * FROM public.academy_guardian_session_summaries($1)', [h.ids.childA])).rowCount, 0);

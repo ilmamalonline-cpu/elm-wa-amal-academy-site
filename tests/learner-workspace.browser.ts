@@ -481,7 +481,10 @@ for (const locale of ["ar", "en"] as const) {
         return route.fulfill({ json: { summaries: [], has_more: false } });
       }
       expect(childId).toBe(childOne.id);
-      return route.fulfill({ json: { summaries: [{ id: "44444444-4444-4444-8444-444444444444", child_id: childOne.id, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T10:30:00Z", time_zone: "UTC", status: "scheduled", meeting_url: "https://teams.microsoft.com/l/meetup-join/abc?context=x", outcome: "attended_completed", follow_up_note: note }], has_more: false } });
+      return route.fulfill({ json: { summaries: [
+        { id: "44444444-4444-4444-8444-444444444444", child_id: childOne.id, subject: "quran", starts_at: "2026-01-01T10:00:00Z", ends_at: "2026-01-01T10:30:00Z", time_zone: "UTC", status: "scheduled", meeting_url: "https://teams.microsoft.com/l/meetup-join/abc?context=x", outcome: "attended_completed", follow_up_note: note },
+        { id: "55555555-5555-4555-8555-555555555555", child_id: childOne.id, subject: "tajweed", starts_at: "2026-01-02T10:00:00Z", ends_at: "2026-01-02T10:30:00Z", time_zone: "UTC", status: "cancelled", meeting_url: "https://meet.google.com/stale-cancelled-link", outcome: null, follow_up_note: "" },
+      ], has_more: false } });
     });
     await page.goto(`/${locale}/workspace`);
     const chooser = page.getByLabel(locale === "ar" ? "اختر ملف الطفل" : "Choose a child profile");
@@ -490,6 +493,8 @@ for (const locale of ["ar", "en"] as const) {
     await expect(summaries).toContainText(locale === "ar" ? "حضر وأكمل" : "Attended — completed");
     await expect(summaries).toContainText(note);
     await expect(summaries.getByRole("link", { name: locale === "ar" ? "فتح رابط الاجتماع" : "Open meeting" })).toHaveAttribute("href", "https://teams.microsoft.com/l/meetup-join/abc?context=x");
+    await expect(summaries.locator(".learner-summary").nth(1)).toContainText(locale === "ar" ? "ملغاة" : "Cancelled");
+    await expect(summaries.locator(".learner-summary").nth(1).getByRole("link")).toHaveCount(0);
     await expect(summaries.locator("img")).toHaveCount(0);
     await expect(summaries).not.toContainText(/teacher_id|Teacher A/);
     await chooser.selectOption(childTwo.id);
